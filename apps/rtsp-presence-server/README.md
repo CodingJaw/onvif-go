@@ -37,6 +37,24 @@ ffplay -fflags nobuffer -flags low_delay -rtsp_transport tcp rtsp://127.0.0.1:85
 The stream is updated in real-time when you POST samples or change `/api/v1/view`.
 The x-axis is time-based (sample timestamps against the active window), so changing `live`/`10m`/`1h` changes horizontal scaling, and the chart continues to scroll left as time passes even without new samples.
 
+## ffplay warning notes (MJPEG)
+
+If ffplay prints warnings like:
+
+```text
+[swscaler] deprecated pixel format used, make sure you did set range correctly
+```
+
+this is a known ffmpeg/swscale message when decoding **MJPEG** (`yuvj420p` full-range) and converting for display. The stream is still valid.
+
+Use this command to keep latency low and hide warning spam:
+
+```bash
+ffplay -loglevel error -fflags nobuffer -flags low_delay -rtsp_transport tcp rtsp://127.0.0.1:8554/presence
+```
+
+If you need totally warning-free playback in ffmpeg logs, the next step is switching this prototype stream from MJPEG to H264/H265.
+
 ## HTTP API
 
 Base URL: `http://127.0.0.1:18080/api/v1`
