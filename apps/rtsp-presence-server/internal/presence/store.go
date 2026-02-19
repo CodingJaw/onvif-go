@@ -36,9 +36,19 @@ type Sample struct {
 
 // View is the active rendering selection.
 type View struct {
-	Window Window `json:"window"`
-	Source Source `json:"source"`
+	Window      Window      `json:"window"`
+	Source      Source      `json:"source"`
+	DisplayMode DisplayMode `json:"display_mode,omitempty"`
 }
+
+// DisplayMode controls how data is drawn.
+type DisplayMode string
+
+const (
+	DisplayModeLine      DisplayMode = "line"
+	DisplayModeBar       DisplayMode = "bar"
+	DisplayModeHistogram DisplayMode = "histogram"
+)
 
 // Store stores incoming samples and current view selection.
 type Store struct {
@@ -48,7 +58,7 @@ type Store struct {
 }
 
 func NewStore() *Store {
-	return &Store{view: View{Window: WindowLive, Source: SourceBoth}}
+	return &Store{view: View{Window: WindowLive, Source: SourceBoth, DisplayMode: DisplayModeLine}}
 }
 
 func (s *Store) Add(sample Sample) error {
@@ -76,11 +86,17 @@ func (s *Store) Add(sample Sample) error {
 }
 
 func (s *Store) SetView(v View) error {
+	if v.DisplayMode == "" {
+		v.DisplayMode = DisplayModeLine
+	}
 	if !validWindow(v.Window) {
 		return errors.New("invalid window")
 	}
 	if !validSource(v.Source) {
 		return errors.New("invalid source")
+	}
+	if !validDisplayMode(v.DisplayMode) {
+		return errors.New("invalid display_mode")
 	}
 	s.mu.Lock()
 	s.view = v
@@ -125,6 +141,15 @@ func validSource(s Source) bool {
 func validWindow(w Window) bool {
 	switch w {
 	case WindowLive, Window10M, Window1H, Window6H, Window12H, Window24H:
+		return true
+	default:
+		return false
+	}
+}
+
+func validDisplayMode(m DisplayMode) bool {
+	switch m {
+	case DisplayModeLine, DisplayModeBar, DisplayModeHistogram:
 		return true
 	default:
 		return false

@@ -65,11 +65,18 @@ func PresenceChart(width, height int, now time.Time, view presence.View, samples
 		}
 	}
 
-	if view.Source == presence.SourceBoth || view.Source == presence.SourceWiFi {
-		drawSeries(func(s presence.Sample) int { return s.WiFiCount }, wifiColor)
-	}
-	if view.Source == presence.SourceBoth || view.Source == presence.SourceBluetooth {
-		drawSeries(func(s presence.Sample) int { return s.BluetoothCount }, bluetoothCol)
+	switch view.DisplayMode {
+	case presence.DisplayModeBar:
+		drawBars(img, plot, windowStart, now, maxV, view, samples)
+	case presence.DisplayModeHistogram:
+		drawHistogram(img, plot, maxV, view, samples)
+	default:
+		if view.Source == presence.SourceBoth || view.Source == presence.SourceWiFi {
+			drawSeries(func(s presence.Sample) int { return s.WiFiCount }, wifiColor)
+		}
+		if view.Source == presence.SourceBoth || view.Source == presence.SourceBluetooth {
+			drawSeries(func(s presence.Sample) int { return s.BluetoothCount }, bluetoothCol)
+		}
 	}
 
 	return img
@@ -150,8 +157,9 @@ func drawXLabels(img *image.RGBA, plot image.Rectangle, window presence.Window) 
 func drawLegend(img *image.RGBA, view presence.View) {
 	drawString(img, 70, 4, "window:"+string(view.Window), secondaryText)
 	drawString(img, 220, 4, "source:"+string(view.Source), secondaryText)
-	drawString(img, 380, 4, "wifi", wifiColor)
-	drawString(img, 420, 4, "bluetooth", bluetoothCol)
+	drawString(img, 360, 4, "mode:"+string(view.DisplayMode), secondaryText)
+	drawString(img, 520, 4, "wifi", wifiColor)
+	drawString(img, 560, 4, "bluetooth", bluetoothCol)
 }
 
 func windowToDuration(w presence.Window) time.Duration {
@@ -179,6 +187,138 @@ func shortDur(d time.Duration) string {
 		return fmt.Sprintf("%dm", int(d.Minutes()))
 	}
 	return fmt.Sprintf("%ds", int(d.Seconds()))
+}
+
+func drawBars(
+	img *image.RGBA,
+	plot image.Rectangle,
+	windowStart, now time.Time,
+	maxV int,
+	view presence.View,
+	samples []presence.Sample,
+) {
+	bars := 20
+	if plot.Dx() < 400 {
+		bars = 12
+	}
+	if bars <= 0 {
+		return
+	}
+	type agg struct{ wifi, bt, c int }
+	aggs := make([]agg, bars)
+	dur := now.Sub(windowStart)
+	if dur <= 0 {
+		return
+	}
+	for _, s := range samples {
+		if s.Timestamp.Before(windowStart) || s.Timestamp.After(now) {
+			continue
+		}
+		idx := int((int64(s.Timestamp.Sub(windowStart)) * int64(bars)) / int64(dur))
+		if idx < 0 {
+			idx = 0
+		}
+		if idx >= bars {
+			idx = bars - 1
+		}
+		aggs[idx].wifi += s.WiFiCount
+		aggs[idx].bt += s.BluetoothCount
+		aggs[idx].c++
+	}
+	barW := max(2, plot.Dx()/bars)
+	for i, a := range aggs {
+		if a.c == 0 {
+			continue
+		}
+		x0 := plot.Min.X + i*plot.Dx()/bars
+		x1 := min(plot.Max.X, x0+barW-1)
+		wifiAvg := a.wifi / a.c
+		btAvg := a.bt / a.c
+		if view.Source == presence.SourceBoth || view.Source == presence.SourceWiFi {
+			y := plot.Max.Y - (wifiAvg*plot.Dy())/maxV
+			fillRect(img, image.Rect(x0, y, x1, plot.Max.Y), wifiColor)
+		}
+		if view.Source == presence.SourceBoth || view.Source == presence.SourceBluetooth {
+			y := plot.Max.Y - (btAvg*plot.Dy())/maxV
+			fillRect(img, image.Rect(x0+barW/3, y, x1, plot.Max.Y), bluetoothCol)
+		}
+	}
+}
+
+func drawHistogram(img *image.RGBA, plot image.Rectangle, maxV int, view presence.View, samples []presence.Sample) {
+	buckets := 10
+	if maxV < buckets {
+		buckets = maxV
+	}
+	if buckets <= 0 {
+		return
+	}
+	wifiHist := make([]int, buckets)
+	btHist := make([]int, buckets)
+	for _, s := range samples {
+		wi := min(buckets-1, (s.WiFiCount*buckets)/max(1, maxV+1))
+		bi := min(buckets-1, (s.BluetoothCount*buckets)/max(1, maxV+1))
+		wifiHist[wi]++
+		btHist[bi]++
+	}
+	maxCount := 1
+	for i := 0; i < buckets; i++ {
+		if wifiHist[i] > maxCount {
+			maxCount = wifiHist[i]
+		}
+		if btHist[i] > maxCount {
+			maxCount = btHist[i]
+		}
+	}
+	colW := max(2, plot.Dx()/buckets)
+	for i := 0; i < buckets; i++ {
+		x0 := plot.Min.X + i*plot.Dx()/buckets
+		x1 := min(plot.Max.X, x0+colW-1)
+		if view.Source == presence.SourceBoth || view.Source == presence.SourceWiFi {
+			y := plot.Max.Y - (wifiHist[i]*plot.Dy())/maxCount
+			fillRect(img, image.Rect(x0, y, x1, plot.Max.Y), wifiColor)
+		}
+		if view.Source == presence.SourceBoth || view.Source == presence.SourceBluetooth {
+			y := plot.Max.Y - (btHist[i]*plot.Dy())/maxCount
+			fillRect(img, image.Rect(x0+colW/3, y, x1, plot.Max.Y), bluetoothCol)
+		}
+	}
+}
+
+func fillRect(img *image.RGBA, r image.Rectangle, col color.Color) {
+	if r.Min.X > r.Max.X || r.Min.Y > r.Max.Y {
+		return
+	}
+	if r.Min.X < img.Bounds().Min.X {
+		r.Min.X = img.Bounds().Min.X
+	}
+	if r.Max.X > img.Bounds().Max.X {
+		r.Max.X = img.Bounds().Max.X
+	}
+	if r.Min.Y < img.Bounds().Min.Y {
+		r.Min.Y = img.Bounds().Min.Y
+	}
+	if r.Max.Y > img.Bounds().Max.Y {
+		r.Max.Y = img.Bounds().Max.Y
+	}
+	for y := r.Min.Y; y <= r.Max.Y; y++ {
+		for x := r.Min.X; x <= r.Max.X; x++ {
+			img.Set(x, y, col)
+		}
+	}
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 func drawLine(img *image.RGBA, x0, y0, x1, y1 int, col color.Color) {

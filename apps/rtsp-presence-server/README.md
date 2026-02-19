@@ -85,12 +85,13 @@ curl http://127.0.0.1:18080/api/v1/view
 ```bash
 curl -X PUT http://127.0.0.1:18080/api/v1/view \
   -H 'content-type: application/json' \
-  -d '{"window":"10m","source":"wifi"}'
+  -d '{"window":"10m","source":"wifi","display_mode":"bar"}'
 ```
 
 Allowed values:
 - `window`: `live`, `10m`, `1h`, `6h`, `12h`, `24h`
 - `source`: `both`, `wifi`, `bluetooth`
+- `display_mode`: `line`, `bar`, `histogram`
 
 ## How this connects back to onvif-go
 
