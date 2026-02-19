@@ -15,9 +15,16 @@ This subfolder contains a standalone RTSP app focused on the hardest part first:
 ## Run
 
 ```bash
-go run ./apps/rtsp-presence-server/cmd/rtsp-presence-server
+go run ./apps/rtsp-presence-server/cmd/rtsp-presence-server -codec h264
 ```
 
+
+
+Codec modes:
+- `-codec h264` (default): uses ffmpeg (`libx264`) to publish H264 into the local RTSP server
+- `-codec mjpeg`: legacy in-process MJPEG mode
+
+> H264 mode requires `ffmpeg` in `PATH`.
 RTSP URI (default):
 
 ```text
@@ -37,7 +44,7 @@ ffplay -fflags nobuffer -flags low_delay -rtsp_transport tcp rtsp://127.0.0.1:85
 The stream is updated in real-time when you POST samples or change `/api/v1/view`.
 The x-axis is time-based (sample timestamps against the active window), so changing `live`/`10m`/`1h` changes horizontal scaling, and the chart continues to scroll left as time passes even without new samples.
 
-## ffplay warning notes (MJPEG)
+## ffplay warning notes (MJPEG mode only)
 
 If ffplay prints warnings like:
 
