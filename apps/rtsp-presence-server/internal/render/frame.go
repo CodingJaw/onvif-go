@@ -1,33 +1,32 @@
 package render
 
 import (
+	"fmt"
 	"image"
 	"image/color"
 	"image/draw"
+	"time"
 
 	"github.com/0x524a/onvif-go/apps/rtsp-presence-server/internal/presence"
 )
 
 var (
-	bgColor      = color.RGBA{R: 12, G: 15, B: 24, A: 255}
-	gridColor    = color.RGBA{R: 48, G: 58, B: 77, A: 255}
-	wifiColor    = color.RGBA{R: 47, G: 191, B: 113, A: 255}
-	bluetoothCol = color.RGBA{R: 76, G: 153, B: 255, A: 255}
+	bgColor       = color.RGBA{R: 12, G: 15, B: 24, A: 255}
+	gridColor     = color.RGBA{R: 48, G: 58, B: 77, A: 255}
+	wifiColor     = color.RGBA{R: 47, G: 191, B: 113, A: 255}
+	bluetoothCol  = color.RGBA{R: 76, G: 153, B: 255, A: 255}
+	axisColor     = color.RGBA{R: 180, G: 190, B: 210, A: 255}
+	labelColor    = color.RGBA{R: 220, G: 230, B: 250, A: 255}
+	secondaryText = color.RGBA{R: 140, G: 150, B: 170, A: 255}
 )
 
 func PresenceChart(width, height int, view presence.View, samples []presence.Sample) image.Image {
 	img := image.NewRGBA(image.Rect(0, 0, width, height))
 	draw.Draw(img, img.Bounds(), &image.Uniform{C: bgColor}, image.Point{}, draw.Src)
 
-	const pad = 24
-	plot := image.Rect(pad, pad, width-pad, height-pad)
-
-	for i := 0; i <= 4; i++ {
-		y := plot.Min.Y + i*(plot.Dy())/4
-		for x := plot.Min.X; x < plot.Max.X; x++ {
-			img.Set(x, y, gridColor)
-		}
-	}
+	plot := image.Rect(58, 20, width-20, height-46)
+	drawAxes(img, plot)
+	drawGrid(img, plot)
 
 	maxV := 1
 	for _, s := range samples {
@@ -39,7 +38,12 @@ func PresenceChart(width, height int, view presence.View, samples []presence.Sam
 		}
 	}
 
+	drawYLabels(img, plot, maxV)
+	drawXLabels(img, plot, view.Window)
+	drawLegend(img, view)
+
 	if len(samples) < 2 {
+		drawString(img, plot.Min.X+6, plot.Min.Y+6, "waiting for data", secondaryText)
 		return img
 	}
 
@@ -61,6 +65,86 @@ func PresenceChart(width, height int, view presence.View, samples []presence.Sam
 	}
 
 	return img
+}
+
+func drawAxes(img *image.RGBA, plot image.Rectangle) {
+	for x := plot.Min.X; x <= plot.Max.X; x++ {
+		img.Set(x, plot.Max.Y, axisColor)
+	}
+	for y := plot.Min.Y; y <= plot.Max.Y; y++ {
+		img.Set(plot.Min.X, y, axisColor)
+	}
+}
+
+func drawGrid(img *image.RGBA, plot image.Rectangle) {
+	for i := 1; i <= 4; i++ {
+		y := plot.Min.Y + i*(plot.Dy())/5
+		for x := plot.Min.X; x <= plot.Max.X; x++ {
+			img.Set(x, y, gridColor)
+		}
+	}
+	for i := 1; i <= 4; i++ {
+		x := plot.Min.X + i*(plot.Dx())/5
+		for y := plot.Min.Y; y <= plot.Max.Y; y++ {
+			img.Set(x, y, gridColor)
+		}
+	}
+}
+
+func drawYLabels(img *image.RGBA, plot image.Rectangle, maxV int) {
+	for i := 0; i <= 5; i++ {
+		v := (maxV * (5 - i)) / 5
+		y := plot.Min.Y + i*(plot.Dy())/5 - 3
+		drawString(img, 6, y, fmt.Sprintf("%d", v), labelColor)
+	}
+	drawString(img, 6, plot.Min.Y-10, "count", secondaryText)
+}
+
+func drawXLabels(img *image.RGBA, plot image.Rectangle, window presence.Window) {
+	d := windowToDuration(window)
+	for i := 0; i <= 5; i++ {
+		x := plot.Min.X + i*(plot.Dx())/5 - 8
+		age := time.Duration((int64(d) * int64(5-i)) / 5)
+		label := "now"
+		if i < 5 {
+			label = "-" + shortDur(age)
+		}
+		drawString(img, x, plot.Max.Y+8, label, labelColor)
+	}
+}
+
+func drawLegend(img *image.RGBA, view presence.View) {
+	drawString(img, 70, 4, "window:"+string(view.Window), secondaryText)
+	drawString(img, 220, 4, "source:"+string(view.Source), secondaryText)
+	drawString(img, 380, 4, "wifi", wifiColor)
+	drawString(img, 420, 4, "bluetooth", bluetoothCol)
+}
+
+func windowToDuration(w presence.Window) time.Duration {
+	switch w {
+	case presence.Window10M:
+		return 10 * time.Minute
+	case presence.Window1H:
+		return time.Hour
+	case presence.Window6H:
+		return 6 * time.Hour
+	case presence.Window12H:
+		return 12 * time.Hour
+	case presence.Window24H:
+		return 24 * time.Hour
+	default:
+		return 2 * time.Minute
+	}
+}
+
+func shortDur(d time.Duration) string {
+	if d >= time.Hour {
+		return fmt.Sprintf("%dh", int(d.Hours()))
+	}
+	if d >= time.Minute {
+		return fmt.Sprintf("%dm", int(d.Minutes()))
+	}
+	return fmt.Sprintf("%ds", int(d.Seconds()))
 }
 
 func drawLine(img *image.RGBA, x0, y0, x1, y1 int, col color.Color) {
@@ -98,4 +182,64 @@ func abs(v int) int {
 		return -v
 	}
 	return v
+}
+
+var glyphs = map[rune][]string{
+	'0': {"111", "101", "101", "101", "111"},
+	'1': {"010", "110", "010", "010", "111"},
+	'2': {"111", "001", "111", "100", "111"},
+	'3': {"111", "001", "111", "001", "111"},
+	'4': {"101", "101", "111", "001", "001"},
+	'5': {"111", "100", "111", "001", "111"},
+	'6': {"111", "100", "111", "101", "111"},
+	'7': {"111", "001", "001", "001", "001"},
+	'8': {"111", "101", "111", "101", "111"},
+	'9': {"111", "101", "111", "001", "111"},
+	'-': {"000", "000", "111", "000", "000"},
+	':': {"000", "010", "000", "010", "000"},
+	' ': {"000", "000", "000", "000", "000"},
+	'a': {"000", "110", "001", "111", "111"},
+	'b': {"100", "100", "110", "101", "110"},
+	'c': {"000", "011", "100", "100", "011"},
+	'd': {"001", "001", "011", "101", "011"},
+	'e': {"010", "101", "111", "100", "011"},
+	'f': {"011", "100", "110", "100", "100"},
+	'h': {"100", "100", "111", "101", "101"},
+	'i': {"010", "000", "010", "010", "010"},
+	'l': {"100", "100", "100", "100", "011"},
+	'n': {"000", "110", "101", "101", "101"},
+	'o': {"000", "111", "101", "101", "111"},
+	'r': {"000", "110", "101", "100", "100"},
+	's': {"011", "100", "010", "001", "110"},
+	't': {"010", "111", "010", "010", "011"},
+	'u': {"000", "101", "101", "101", "111"},
+	'w': {"000", "101", "101", "111", "010"},
+}
+
+func drawString(img *image.RGBA, x, y int, text string, col color.Color) {
+	cx := x
+	for _, r := range text {
+		g, ok := glyphs[r]
+		if !ok {
+			if r >= 'A' && r <= 'Z' {
+				g, ok = glyphs[r+('a'-'A')]
+			}
+		}
+		if !ok {
+			cx += 4
+			continue
+		}
+		for gy, row := range g {
+			for gx, ch := range row {
+				if ch == '1' {
+					px := cx + gx
+					py := y + gy
+					if image.Pt(px, py).In(img.Bounds()) {
+						img.Set(px, py, col)
+					}
+				}
+			}
+		}
+		cx += 4
+	}
 }

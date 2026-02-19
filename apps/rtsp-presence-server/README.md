@@ -26,6 +26,8 @@ rtsp://127.0.0.1:8554/presence
 
 Open in VLC: `Media -> Open Network Stream -> rtsp://127.0.0.1:8554/presence`
 
+If your client previously showed `461 Unsupported Transport`, that was caused by missing UDP transport listeners. The server now supports both UDP and TCP interleaved RTSP transport.
+
 For lower startup latency with ffplay:
 
 ```bash

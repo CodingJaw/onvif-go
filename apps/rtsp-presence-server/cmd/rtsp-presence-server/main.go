@@ -70,8 +70,10 @@ func main() {
 
 	h := &rtspHandler{}
 	rtspServer := &gortsplib.Server{
-		Handler:     h,
-		RTSPAddress: *rtspAddr,
+		Handler:        h,
+		RTSPAddress:    *rtspAddr,
+		UDPRTPAddress:  ":8000",
+		UDPRTCPAddress: ":8001",
 	}
 	if err := rtspServer.Start(); err != nil {
 		log.Fatalf("failed to start RTSP server: %v", err)
