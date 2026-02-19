@@ -35,6 +35,7 @@ ffplay -fflags nobuffer -flags low_delay -rtsp_transport tcp rtsp://127.0.0.1:85
 ```
 
 The stream is updated in real-time when you POST samples or change `/api/v1/view`.
+The x-axis is time-based (sample timestamps against the active window), so changing `live`/`10m`/`1h` changes horizontal scaling, and the chart continues to scroll left as time passes even without new samples.
 
 ## HTTP API
 

@@ -20,13 +20,16 @@ var (
 	secondaryText = color.RGBA{R: 140, G: 150, B: 170, A: 255}
 )
 
-func PresenceChart(width, height int, view presence.View, samples []presence.Sample) image.Image {
+func PresenceChart(width, height int, now time.Time, view presence.View, samples []presence.Sample) image.Image {
 	img := image.NewRGBA(image.Rect(0, 0, width, height))
 	draw.Draw(img, img.Bounds(), &image.Uniform{C: bgColor}, image.Point{}, draw.Src)
 
 	plot := image.Rect(58, 20, width-20, height-46)
 	drawAxes(img, plot)
 	drawGrid(img, plot)
+
+	windowDur := windowToDuration(view.Window)
+	windowStart := now.Add(-windowDur)
 
 	maxV := 1
 	for _, s := range samples {
@@ -48,12 +51,17 @@ func PresenceChart(width, height int, view presence.View, samples []presence.Sam
 	}
 
 	drawSeries := func(use func(presence.Sample) int, col color.Color) {
+		prev, hasPrev := pointForSample(plot, windowStart, now, maxV, use(samples[0]), samples[0].Timestamp)
+		if !hasPrev {
+			return
+		}
 		for i := 1; i < len(samples); i++ {
-			x0 := plot.Min.X + (i-1)*plot.Dx()/(len(samples)-1)
-			x1 := plot.Min.X + i*plot.Dx()/(len(samples)-1)
-			y0 := plot.Max.Y - (use(samples[i-1])*plot.Dy())/maxV
-			y1 := plot.Max.Y - (use(samples[i])*plot.Dy())/maxV
-			drawLine(img, x0, y0, x1, y1, col)
+			cur, ok := pointForSample(plot, windowStart, now, maxV, use(samples[i]), samples[i].Timestamp)
+			if !ok {
+				continue
+			}
+			drawLine(img, prev.X, prev.Y, cur.X, cur.Y, col)
+			prev = cur
 		}
 	}
 
@@ -65,6 +73,32 @@ func PresenceChart(width, height int, view presence.View, samples []presence.Sam
 	}
 
 	return img
+}
+
+func pointForSample(plot image.Rectangle, start, now time.Time, maxV, value int, ts time.Time) (image.Point, bool) {
+	if ts.Before(start) || ts.After(now) {
+		return image.Point{}, false
+	}
+	total := now.Sub(start)
+	if total <= 0 {
+		return image.Point{X: plot.Max.X, Y: plot.Max.Y}, true
+	}
+	elapsed := ts.Sub(start)
+	x := plot.Min.X + int((int64(elapsed)*int64(plot.Dx()))/int64(total))
+	y := plot.Max.Y - (value*plot.Dy())/maxV
+	if y < plot.Min.Y {
+		y = plot.Min.Y
+	}
+	if y > plot.Max.Y {
+		y = plot.Max.Y
+	}
+	if x < plot.Min.X {
+		x = plot.Min.X
+	}
+	if x > plot.Max.X {
+		x = plot.Max.X
+	}
+	return image.Point{X: x, Y: y}, true
 }
 
 func drawAxes(img *image.RGBA, plot image.Rectangle) {

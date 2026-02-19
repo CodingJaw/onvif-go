@@ -135,7 +135,7 @@ func streamLoop(
 			return
 		case now := <-ticker.C:
 			view, samples := store.Snapshot(now.UTC())
-			img := render.PresenceChart(width, height, view, samples)
+			img := render.PresenceChart(width, height, now.UTC(), view, samples)
 
 			var buf bytes.Buffer
 			if err := jpeg.Encode(&buf, img, &jpeg.Options{Quality: 80}); err != nil {
