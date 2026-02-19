@@ -26,6 +26,14 @@ rtsp://127.0.0.1:8554/presence
 
 Open in VLC: `Media -> Open Network Stream -> rtsp://127.0.0.1:8554/presence`
 
+For lower startup latency with ffplay:
+
+```bash
+ffplay -fflags nobuffer -flags low_delay -rtsp_transport tcp rtsp://127.0.0.1:8554/presence
+```
+
+The stream is updated in real-time when you POST samples or change `/api/v1/view`.
+
 ## HTTP API
 
 Base URL: `http://127.0.0.1:18080/api/v1`
@@ -66,4 +74,3 @@ A good near-term integration path is:
 1. ONVIF app owns PTZ menu state.
 2. ONVIF app updates this RTSP app via HTTP/gRPC view-control API.
 3. Python producer sends samples here directly (or to ONVIF first, then forwarded).
-

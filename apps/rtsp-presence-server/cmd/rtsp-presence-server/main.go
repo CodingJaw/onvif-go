@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -114,6 +116,14 @@ func streamLoop(
 	if fps <= 0 {
 		fps = 5
 	}
+
+	clockRate := uint32(90000)
+	ticksPerFrame := clockRate / uint32(fps)
+	if ticksPerFrame == 0 {
+		ticksPerFrame = 1
+	}
+	rtpTimestamp := randomUint32()
+
 	ticker := time.NewTicker(time.Second / time.Duration(fps))
 	defer ticker.Stop()
 
@@ -138,13 +148,24 @@ func streamLoop(
 			}
 
 			for _, pkt := range pkts {
+				pkt.Timestamp = rtpTimestamp
 				if err := stream.WritePacketRTP(media, pkt); err != nil {
 					log.Printf("write RTP failed: %v", err)
 					break
 				}
 			}
+
+			rtpTimestamp += ticksPerFrame
 		}
 	}
+}
+
+func randomUint32() uint32 {
+	var b [4]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return uint32(time.Now().UnixNano())
+	}
+	return binary.BigEndian.Uint32(b[:])
 }
 
 func serveHTTPAPI(ctx context.Context, addr string, store *presence.Store) {
