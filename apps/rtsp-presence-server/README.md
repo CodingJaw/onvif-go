@@ -18,6 +18,12 @@ This subfolder contains a standalone RTSP app focused on the hardest part first:
 go run ./apps/rtsp-presence-server/cmd/rtsp-presence-server -codec h264
 ```
 
+Set a different IP/host (instead of `127.0.0.1`) with:
+
+```bash
+go run ./apps/rtsp-presence-server/cmd/rtsp-presence-server -codec h264 -host 192.168.1.50
+```
+
 
 
 Codec modes:
@@ -28,17 +34,17 @@ Codec modes:
 RTSP URI (default):
 
 ```text
-rtsp://127.0.0.1:8554/presence
+rtsp://<host>:8554/presence
 ```
 
-Open in VLC: `Media -> Open Network Stream -> rtsp://127.0.0.1:8554/presence`
+Open in VLC: `Media -> Open Network Stream -> rtsp://<host>:8554/presence`
 
 If your client previously showed `461 Unsupported Transport`, that was caused by missing UDP transport listeners. The server now supports both UDP and TCP interleaved RTSP transport.
 
 For lower startup latency with ffplay:
 
 ```bash
-ffplay -fflags nobuffer -flags low_delay -rtsp_transport tcp rtsp://127.0.0.1:8554/presence
+ffplay -fflags nobuffer -flags low_delay -rtsp_transport tcp rtsp://<host>:8554/presence
 ```
 
 The stream is updated in real-time when you POST samples or change `/api/v1/view`.
@@ -57,19 +63,19 @@ this is a known ffmpeg/swscale message when decoding **MJPEG** (`yuvj420p` full-
 Use this command to keep latency low and hide warning spam:
 
 ```bash
-ffplay -loglevel error -fflags nobuffer -flags low_delay -rtsp_transport tcp rtsp://127.0.0.1:8554/presence
+ffplay -loglevel error -fflags nobuffer -flags low_delay -rtsp_transport tcp rtsp://<host>:8554/presence
 ```
 
 If you need totally warning-free playback in ffmpeg logs, the next step is switching this prototype stream from MJPEG to H264/H265.
 
 ## HTTP API
 
-Base URL: `http://127.0.0.1:18080/api/v1`
+Base URL: `http://<host>:18080/api/v1`
 
 ### Add sample
 
 ```bash
-curl -X POST http://127.0.0.1:18080/api/v1/samples \
+curl -X POST http://<host>:18080/api/v1/samples \
   -H 'content-type: application/json' \
   -d '{"wifi_count":17,"bluetooth_count":9}'
 ```
@@ -77,13 +83,13 @@ curl -X POST http://127.0.0.1:18080/api/v1/samples \
 ### Get active view
 
 ```bash
-curl http://127.0.0.1:18080/api/v1/view
+curl http://<host>:18080/api/v1/view
 ```
 
 ### Change active view
 
 ```bash
-curl -X PUT http://127.0.0.1:18080/api/v1/view \
+curl -X PUT http://<host>:18080/api/v1/view \
   -H 'content-type: application/json' \
   -d '{"window":"10m","source":"wifi","display_mode":"bar"}'
 ```

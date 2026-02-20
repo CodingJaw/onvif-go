@@ -102,6 +102,7 @@ func main() {
 		width    = flag.Int("width", 1280, "video width")
 		height   = flag.Int("height", 720, "video height")
 		codec    = flag.String("codec", "h264", "stream codec: h264 or mjpeg")
+		host     = flag.String("host", "127.0.0.1", "host/IP for stream URLs and local H264 publisher")
 	)
 	flag.Parse()
 
@@ -127,20 +128,20 @@ func main() {
 
 	switch *codec {
 	case "h264":
-		if err := runH264Pipeline(ctx, h, *rtspAddr, *path, store, *fps, *width, *height); err != nil {
+		if err := runH264Pipeline(ctx, h, *host, *rtspAddr, *path, store, *fps, *width, *height); err != nil {
 			log.Fatalf("failed to start h264 pipeline: %v", err)
 		}
-		log.Printf("RTSP stream ready (H264): rtsp://127.0.0.1%s/%s", *rtspAddr, *path)
+		log.Printf("RTSP stream ready (H264): rtsp://%s%s/%s", *host, *rtspAddr, *path)
 	case "mjpeg":
 		if err := runMJPEGPipeline(ctx, h, *path, store, *fps, *width, *height); err != nil {
 			log.Fatalf("failed to start mjpeg pipeline: %v", err)
 		}
-		log.Printf("RTSP stream ready (MJPEG): rtsp://127.0.0.1%s/%s", *rtspAddr, *path)
+		log.Printf("RTSP stream ready (MJPEG): rtsp://%s%s/%s", *host, *rtspAddr, *path)
 	default:
 		log.Fatalf("unsupported codec %q (use h264 or mjpeg)", *codec)
 	}
 
-	log.Printf("HTTP control API: http://127.0.0.1%s/api/v1", *httpAddr)
+	log.Printf("HTTP control API: http://%s%s/api/v1", *host, *httpAddr)
 
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
@@ -185,7 +186,7 @@ func runMJPEGPipeline(
 func runH264Pipeline(
 	ctx context.Context,
 	h *rtspHandler,
-	rtspAddr, path string,
+	host, rtspAddr, path string,
 	store *presence.Store,
 	fps, width, height int,
 ) error {
@@ -193,7 +194,7 @@ func runH264Pipeline(
 		return fmt.Errorf("ffmpeg not found in PATH; install ffmpeg or run with -codec mjpeg")
 	}
 
-	uri := fmt.Sprintf("rtsp://127.0.0.1%s/%s", rtspAddr, path)
+	uri := fmt.Sprintf("rtsp://%s%s/%s", host, rtspAddr, path)
 	gop := fps * 2
 	cmd := exec.CommandContext(ctx, "ffmpeg",
 		"-loglevel", "error",
