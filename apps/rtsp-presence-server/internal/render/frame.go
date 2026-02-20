@@ -45,7 +45,7 @@ func PresenceChart(width, height int, now time.Time, view presence.View, samples
 	drawXLabels(img, plot, view.Window)
 	drawLegend(img, view)
 
-	if len(samples) < 2 {
+	if len(samples) == 0 {
 		drawString(img, plot.Min.X+6, plot.Min.Y+6, "waiting for data", secondaryText)
 		return img
 	}
@@ -70,6 +70,8 @@ func PresenceChart(width, height int, now time.Time, view presence.View, samples
 		drawBars(img, plot, windowStart, now, maxV, view, samples)
 	case presence.DisplayModeHistogram:
 		drawHistogram(img, plot, maxV, view, samples)
+	case presence.DisplayModeText:
+		drawTextMode(img, plot, view, samples)
 	default:
 		if view.Source == presence.SourceBoth || view.Source == presence.SourceWiFi {
 			drawSeries(func(s presence.Sample) int { return s.WiFiCount }, wifiColor)
@@ -319,6 +321,57 @@ func max(a, b int) int {
 		return a
 	}
 	return b
+}
+
+func drawTextMode(img *image.RGBA, plot image.Rectangle, view presence.View, samples []presence.Sample) {
+	latest := samples[len(samples)-1]
+	leftX := plot.Min.X + 30
+	rightX := plot.Min.X + plot.Dx()/2 + 30
+	labelY := plot.Min.Y + 40
+	numY := plot.Min.Y + plot.Dy()/2 - 40
+
+	if view.Source == presence.SourceBoth || view.Source == presence.SourceWiFi {
+		drawStringScaled(img, leftX, labelY, "wifi", wifiColor, 3)
+		drawStringScaled(img, leftX, numY, fmt.Sprintf("%d", latest.WiFiCount), labelColor, 10)
+	}
+	if view.Source == presence.SourceBoth || view.Source == presence.SourceBluetooth {
+		drawStringScaled(img, rightX, labelY, "bluetooth", bluetoothCol, 3)
+		drawStringScaled(img, rightX, numY, fmt.Sprintf("%d", latest.BluetoothCount), labelColor, 10)
+	}
+}
+
+func drawStringScaled(img *image.RGBA, x, y int, text string, col color.Color, scale int) {
+	if scale < 1 {
+		scale = 1
+	}
+	cx := x
+	for _, r := range text {
+		g, ok := glyphs[r]
+		if !ok && r >= 'A' && r <= 'Z' {
+			g, ok = glyphs[r+('a'-'A')]
+		}
+		if !ok {
+			cx += 4 * scale
+			continue
+		}
+		for gy, row := range g {
+			for gx, ch := range row {
+				if ch != '1' {
+					continue
+				}
+				for sy := 0; sy < scale; sy++ {
+					for sx := 0; sx < scale; sx++ {
+						px := cx + gx*scale + sx
+						py := y + gy*scale + sy
+						if image.Pt(px, py).In(img.Bounds()) {
+							img.Set(px, py, col)
+						}
+					}
+				}
+			}
+		}
+		cx += 4 * scale
+	}
 }
 
 func drawLine(img *image.RGBA, x0, y0, x1, y1 int, col color.Color) {

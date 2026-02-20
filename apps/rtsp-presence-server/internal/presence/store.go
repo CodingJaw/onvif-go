@@ -48,6 +48,7 @@ const (
 	DisplayModeLine      DisplayMode = "line"
 	DisplayModeBar       DisplayMode = "bar"
 	DisplayModeHistogram DisplayMode = "histogram"
+	DisplayModeText      DisplayMode = "text"
 )
 
 // Store stores incoming samples and current view selection.
@@ -149,7 +150,7 @@ func validWindow(w Window) bool {
 
 func validDisplayMode(m DisplayMode) bool {
 	switch m {
-	case DisplayModeLine, DisplayModeBar, DisplayModeHistogram:
+	case DisplayModeLine, DisplayModeBar, DisplayModeHistogram, DisplayModeText:
 		return true
 	default:
 		return false

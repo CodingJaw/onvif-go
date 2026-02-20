@@ -91,7 +91,7 @@ curl -X PUT http://127.0.0.1:18080/api/v1/view \
 Allowed values:
 - `window`: `live`, `10m`, `1h`, `6h`, `12h`, `24h`
 - `source`: `both`, `wifi`, `bluetooth`
-- `display_mode`: `line`, `bar`, `histogram`
+- `display_mode`: `line`, `bar`, `histogram`, `text`
 
 ## How this connects back to onvif-go
 
