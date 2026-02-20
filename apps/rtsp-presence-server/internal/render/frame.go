@@ -325,19 +325,54 @@ func max(a, b int) int {
 
 func drawTextMode(img *image.RGBA, plot image.Rectangle, view presence.View, samples []presence.Sample) {
 	latest := samples[len(samples)-1]
-	leftX := plot.Min.X + 30
-	rightX := plot.Min.X + plot.Dx()/2 + 30
-	labelY := plot.Min.Y + 40
-	numY := plot.Min.Y + plot.Dy()/2 - 40
+
+	halfW := plot.Dx() / 2
+	leftCenterX := plot.Min.X + halfW/2
+	rightCenterX := plot.Min.X + halfW + halfW/2
+	centerY := plot.Min.Y + plot.Dy()/2
+	labelScale := 4
+	numberScale := 16
+	labelY := plot.Min.Y + 36
 
 	if view.Source == presence.SourceBoth || view.Source == presence.SourceWiFi {
-		drawStringScaled(img, leftX, labelY, "wifi", wifiColor, 3)
-		drawStringScaled(img, leftX, numY, fmt.Sprintf("%d", latest.WiFiCount), labelColor, 10)
+		wifiLabel := "wifi"
+		wifiValue := fmt.Sprintf("%d", latest.WiFiCount)
+		wifiValueW := stringWidthScaled(wifiValue, numberScale)
+		wifiValueH := stringHeightScaled(numberScale)
+		wifiValueX := leftCenterX - wifiValueW/2
+		wifiValueY := centerY - wifiValueH/2
+		drawCenteredStringScaled(img, leftCenterX, labelY, wifiLabel, wifiColor, labelScale)
+		drawStringScaled(img, wifiValueX, wifiValueY, wifiValue, labelColor, numberScale)
 	}
 	if view.Source == presence.SourceBoth || view.Source == presence.SourceBluetooth {
-		drawStringScaled(img, rightX, labelY, "bluetooth", bluetoothCol, 3)
-		drawStringScaled(img, rightX, numY, fmt.Sprintf("%d", latest.BluetoothCount), labelColor, 10)
+		btLabel := "bluetooth"
+		btValue := fmt.Sprintf("%d", latest.BluetoothCount)
+		btValueW := stringWidthScaled(btValue, numberScale)
+		btValueH := stringHeightScaled(numberScale)
+		btValueX := rightCenterX - btValueW/2
+		btValueY := centerY - btValueH/2
+		drawCenteredStringScaled(img, rightCenterX, labelY, btLabel, bluetoothCol, labelScale)
+		drawStringScaled(img, btValueX, btValueY, btValue, labelColor, numberScale)
 	}
+}
+
+func drawCenteredStringScaled(img *image.RGBA, centerX, y int, text string, col color.Color, scale int) {
+	w := stringWidthScaled(text, scale)
+	drawStringScaled(img, centerX-w/2, y, text, col, scale)
+}
+
+func stringWidthScaled(text string, scale int) int {
+	if scale < 1 {
+		scale = 1
+	}
+	return len(text) * 4 * scale
+}
+
+func stringHeightScaled(scale int) int {
+	if scale < 1 {
+		scale = 1
+	}
+	return 5 * scale
 }
 
 func drawStringScaled(img *image.RGBA, x, y int, text string, col color.Color, scale int) {
