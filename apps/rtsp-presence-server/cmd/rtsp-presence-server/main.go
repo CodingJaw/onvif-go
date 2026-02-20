@@ -12,6 +12,7 @@ import (
 	"image/jpeg"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -174,6 +175,9 @@ func main() {
 	)
 	flag.Parse()
 	*path = normalizePath(*path)
+	if *host == "0.0.0.0" {
+		log.Printf("warning: -host 0.0.0.0 is not reachable by clients; use a concrete IP/DNS name for advertised URL")
+	}
 
 	store := presence.NewStore()
 	h := &rtspHandler{debug: *debug, path: *path}
@@ -275,8 +279,13 @@ func runH264Pipeline(
 	if _, err := exec.LookPath("ffmpeg"); err != nil {
 		return fmt.Errorf("ffmpeg not found in PATH; install ffmpeg or run with -codec mjpeg")
 	}
+	publishHost := normalizePublishHost(host)
+	publishAddr := net.JoinHostPort(publishHost, extractPortOrDefault(rtspAddr, "8554"))
+	if err := waitForTCP(ctx, publishAddr, 5*time.Second); err != nil {
+		return fmt.Errorf("rtsp listener not ready at %s: %w", publishAddr, err)
+	}
 
-	uri := fmt.Sprintf("rtsp://%s%s/%s", host, rtspAddr, path)
+	uri := fmt.Sprintf("rtsp://%s:%s/%s", publishHost, extractPortOrDefault(rtspAddr, "8554"), path)
 	gop := max(10, fps*2)
 	cmd := exec.CommandContext(ctx, "ffmpeg",
 		"-loglevel", "error",
@@ -310,10 +319,13 @@ func runH264Pipeline(
 		log.Printf("[debug] ffmpeg started pid=%d uri=%s", cmd.Process.Pid, uri)
 	}
 
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- cmd.Wait()
+	}()
 	go func() {
 		<-ctx.Done()
 		_ = stdin.Close()
-		_ = cmd.Wait()
 	}()
 	go streamLoopToMJPEGWriter(ctx, stdin, store, fps, width, height, debug)
 
@@ -333,9 +345,56 @@ func runH264Pipeline(
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
+		case err := <-errCh:
+			if err != nil {
+				return fmt.Errorf("h264 publisher exited before announce: %w", err)
+			}
+			return fmt.Errorf("h264 publisher exited before announce")
 		case <-readyDeadline.C:
 			return fmt.Errorf("h264 publisher did not announce stream within timeout")
 		case <-pollTicker.C:
+		}
+	}
+}
+
+func normalizePublishHost(host string) string {
+	h := strings.TrimSpace(host)
+	if h == "" || h == "0.0.0.0" || h == "::" {
+		return "127.0.0.1"
+	}
+	return h
+}
+
+func extractPortOrDefault(addr, fallback string) string {
+	if strings.HasPrefix(addr, ":") {
+		return strings.TrimPrefix(addr, ":")
+	}
+	_, port, err := net.SplitHostPort(addr)
+	if err != nil || port == "" {
+		return fallback
+	}
+	return port
+}
+
+func waitForTCP(ctx context.Context, addr string, timeout time.Duration) error {
+	deadline := time.NewTimer(timeout)
+	defer deadline.Stop()
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		conn, err := net.DialTimeout("tcp", addr, 300*time.Millisecond)
+		if err == nil {
+			_ = conn.Close()
+			return nil
+		}
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-deadline.C:
+			return fmt.Errorf("timeout waiting for %s", addr)
+		case <-ticker.C:
 		}
 	}
 }
