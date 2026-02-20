@@ -330,8 +330,8 @@ func drawTextMode(img *image.RGBA, plot image.Rectangle, view presence.View, sam
 	leftCenterX := plot.Min.X + halfW/2
 	rightCenterX := plot.Min.X + halfW + halfW/2
 	centerY := plot.Min.Y + plot.Dy()/2
-	labelScale := 4
-	numberScale := 16
+	labelScale := 12
+	numberScale := 32
 	labelY := plot.Min.Y + 36
 
 	if view.Source == presence.SourceBoth || view.Source == presence.SourceWiFi {
