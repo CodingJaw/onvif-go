@@ -4,34 +4,33 @@ This subfolder contains a standalone RTSP app focused on the hardest part first:
 
 ## What it does now
 
-- Hosts an **RTSP MJPEG** stream (easy to validate with VLC).
+- Hosts a **gortsplib-native RTSP MJPEG** stream (no ffmpeg publishing loop required).
 - Renders a simple chart frame from incoming presence samples.
 - Exposes a small HTTP API so Python (or Go ONVIF server) can push data and change view mode.
 
-> Why MJPEG first?
-> - It is fully valid RTSP video and easy to inspect while the control/data contracts are being built.
-> - Next step can switch encoder to H264/H265 once we lock chart/layout/control behavior.
+> Why this mode?
+> - It uses `gortsplib` directly as the RTSP producer/server path.
+> - It works with VLC / ffplay and many other RTSP clients while keeping implementation simple and observable.
 
 ## Run
 
 ```bash
-go run ./apps/rtsp-presence-server/cmd/rtsp-presence-server -codec h264
+go run ./apps/rtsp-presence-server/cmd/rtsp-presence-server
 ```
 
 Set a different IP/host (instead of `127.0.0.1`) with:
 
 ```bash
-go run ./apps/rtsp-presence-server/cmd/rtsp-presence-server -codec h264 -host 192.168.1.50
+go run ./apps/rtsp-presence-server/cmd/rtsp-presence-server -host 192.168.1.50
 ```
 
 
 
-Codec modes:
-- `-codec h264` (default): uses ffmpeg (`libx264`) to publish H264 into the local RTSP server
-- `-codec mjpeg`: legacy in-process MJPEG mode
+Server mode:
+- single gortsplib-native MJPEG stream producer
 
 Debug mode:
-- add `-debug` to print RTSP events (`DESCRIBE/SETUP/PLAY/ANNOUNCE/RECORD`, session/connection open/close), frame pipeline activity, and HTTP API updates.
+- add `-debug` to print RTSP events (`DESCRIBE/SETUP/PLAY`, session/connection open/close), frame pipeline activity, and HTTP API updates.
 
 Transport compatibility:
 - RTSP over TCP
@@ -41,7 +40,6 @@ Transport compatibility:
 Path handling:
 - `-path` accepts `presence` or `/presence` (normalized internally), to avoid client/path mismatches.
 
-> H264 mode requires `ffmpeg` in `PATH`.
 RTSP URI (default):
 
 ```text
@@ -61,7 +59,7 @@ ffplay -fflags nobuffer -flags low_delay -rtsp_transport tcp rtsp://<host>:8554/
 The stream is updated in real-time when you POST samples or change `/api/v1/view`.
 The x-axis is time-based (sample timestamps against the active window), so changing `live`/`10m`/`1h` changes horizontal scaling, and the chart continues to scroll left as time passes even without new samples.
 
-## ffplay warning notes (MJPEG mode only)
+## ffplay warning notes (MJPEG)
 
 If ffplay prints warnings like:
 
@@ -77,7 +75,7 @@ Use this command to keep latency low and hide warning spam:
 ffplay -loglevel error -fflags nobuffer -flags low_delay -rtsp_transport tcp rtsp://<host>:8554/presence
 ```
 
-If you need totally warning-free playback in ffmpeg logs, the next step is switching this prototype stream from MJPEG to H264/H265.
+If you need totally warning-free playback in ffmpeg logs, a future optional H264/H265 encoder path can be added.
 
 ## HTTP API
 
