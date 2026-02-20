@@ -36,10 +36,34 @@ import (
 type rtspHandler struct {
 	server *gortsplib.Server
 	stream *gortsplib.ServerStream
+	debug  bool
 	mu     sync.RWMutex
 }
 
+func (h *rtspHandler) debugf(format string, args ...interface{}) {
+	if h.debug {
+		log.Printf("[debug] "+format, args...)
+	}
+}
+
+func (h *rtspHandler) OnConnOpen(_ *gortsplib.ServerHandlerOnConnOpenCtx) {
+	h.debugf("RTSP connection opened")
+}
+
+func (h *rtspHandler) OnConnClose(ctx *gortsplib.ServerHandlerOnConnCloseCtx) {
+	h.debugf("RTSP connection closed: %v", ctx.Error)
+}
+
+func (h *rtspHandler) OnSessionOpen(_ *gortsplib.ServerHandlerOnSessionOpenCtx) {
+	h.debugf("RTSP session opened")
+}
+
+func (h *rtspHandler) OnSessionClose(ctx *gortsplib.ServerHandlerOnSessionCloseCtx) {
+	h.debugf("RTSP session closed: %v", ctx.Error)
+}
+
 func (h *rtspHandler) OnDescribe(_ *gortsplib.ServerHandlerOnDescribeCtx) (*base.Response, *gortsplib.ServerStream, error) {
+	h.debugf("DESCRIBE")
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	if h.stream == nil {
@@ -49,6 +73,7 @@ func (h *rtspHandler) OnDescribe(_ *gortsplib.ServerHandlerOnDescribeCtx) (*base
 }
 
 func (h *rtspHandler) OnSetup(ctx *gortsplib.ServerHandlerOnSetupCtx) (*base.Response, *gortsplib.ServerStream, error) {
+	h.debugf("SETUP state=%s", ctx.Session.State())
 	if ctx.Session.State() == gortsplib.ServerSessionStatePreRecord {
 		return &base.Response{StatusCode: base.StatusOK}, nil, nil
 	}
@@ -62,10 +87,12 @@ func (h *rtspHandler) OnSetup(ctx *gortsplib.ServerHandlerOnSetupCtx) (*base.Res
 }
 
 func (h *rtspHandler) OnPlay(_ *gortsplib.ServerHandlerOnPlayCtx) (*base.Response, error) {
+	h.debugf("PLAY")
 	return &base.Response{StatusCode: base.StatusOK}, nil
 }
 
 func (h *rtspHandler) OnAnnounce(ctx *gortsplib.ServerHandlerOnAnnounceCtx) (*base.Response, error) {
+	h.debugf("ANNOUNCE with %d medias", len(ctx.Description.Medias))
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if h.stream != nil {
@@ -79,6 +106,7 @@ func (h *rtspHandler) OnAnnounce(ctx *gortsplib.ServerHandlerOnAnnounceCtx) (*ba
 }
 
 func (h *rtspHandler) OnRecord(ctx *gortsplib.ServerHandlerOnRecordCtx) (*base.Response, error) {
+	h.debugf("RECORD")
 	ctx.Session.OnPacketRTPAny(func(medi *description.Media, _ format.Format, pkt *rtp.Packet) {
 		h.mu.RLock()
 		stream := h.stream
@@ -88,6 +116,8 @@ func (h *rtspHandler) OnRecord(ctx *gortsplib.ServerHandlerOnRecordCtx) (*base.R
 		}
 		if err := stream.WritePacketRTP(medi, pkt); err != nil {
 			log.Printf("route RTP failed: %v", err)
+		} else {
+			h.debugf("RTP forwarded pt=%d ts=%d seq=%d", pkt.PayloadType, pkt.Timestamp, pkt.SequenceNumber)
 		}
 	})
 
@@ -104,13 +134,14 @@ func main() {
 		height   = flag.Int("height", 720, "video height")
 		codec    = flag.String("codec", "h264", "stream codec: h264 or mjpeg")
 		host     = flag.String("host", "127.0.0.1", "host/IP for stream URLs and local H264 publisher")
+		debug    = flag.Bool("debug", false, "enable verbose debug logging")
 	)
 	flag.Parse()
 	*path = normalizePath(*path)
 
 	store := presence.NewStore()
 
-	h := &rtspHandler{}
+	h := &rtspHandler{debug: *debug}
 	rtspServer := &gortsplib.Server{
 		Handler:           h,
 		RTSPAddress:       *rtspAddr,
@@ -129,16 +160,16 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	go serveHTTPAPI(ctx, *httpAddr, store)
+	go serveHTTPAPI(ctx, *httpAddr, store, *debug)
 
 	switch *codec {
 	case "h264":
-		if err := runH264Pipeline(ctx, h, *host, *rtspAddr, *path, store, *fps, *width, *height); err != nil {
+		if err := runH264Pipeline(ctx, h, *host, *rtspAddr, *path, store, *fps, *width, *height, *debug); err != nil {
 			log.Fatalf("failed to start h264 pipeline: %v", err)
 		}
 		log.Printf("RTSP stream ready (H264): rtsp://%s%s/%s", *host, *rtspAddr, *path)
 	case "mjpeg":
-		if err := runMJPEGPipeline(ctx, h, *path, store, *fps, *width, *height); err != nil {
+		if err := runMJPEGPipeline(ctx, h, *path, store, *fps, *width, *height, *debug); err != nil {
 			log.Fatalf("failed to start mjpeg pipeline: %v", err)
 		}
 		log.Printf("RTSP stream ready (MJPEG): rtsp://%s%s/%s", *host, *rtspAddr, *path)
@@ -170,6 +201,7 @@ func runMJPEGPipeline(
 	path string,
 	store *presence.Store,
 	fps, width, height int,
+	debug bool,
 ) error {
 	mjpegFmt := &format.MJPEG{}
 	desc := &description.Session{Medias: []*description.Media{{
@@ -192,7 +224,7 @@ func runMJPEGPipeline(
 		return err
 	}
 
-	go streamLoopMJPEG(ctx, stream, desc.Medias[0], rtpEnc, store, fps, width, height)
+	go streamLoopMJPEG(ctx, stream, desc.Medias[0], rtpEnc, store, fps, width, height, debug)
 
 	return nil
 }
@@ -203,6 +235,7 @@ func runH264Pipeline(
 	host, rtspAddr, path string,
 	store *presence.Store,
 	fps, width, height int,
+	debug bool,
 ) error {
 	if _, err := exec.LookPath("ffmpeg"); err != nil {
 		return fmt.Errorf("ffmpeg not found in PATH; install ffmpeg or run with -codec mjpeg")
@@ -237,13 +270,16 @@ func runH264Pipeline(
 	if err := cmd.Start(); err != nil {
 		return err
 	}
+	if debug {
+		log.Printf("[debug] ffmpeg started pid=%d uri=%s", cmd.Process.Pid, uri)
+	}
 
 	go func() {
 		<-ctx.Done()
 		_ = stdin.Close()
 		_ = cmd.Wait()
 	}()
-	go streamLoopToMJPEGWriter(ctx, stdin, store, fps, width, height)
+	go streamLoopToMJPEGWriter(ctx, stdin, store, fps, width, height, debug)
 
 	return nil
 }
@@ -255,6 +291,7 @@ func streamLoopMJPEG(
 	rtpEnc *rtpmjpeg.Encoder,
 	store *presence.Store,
 	fps, width, height int,
+	debug bool,
 ) {
 	if fps <= 0 {
 		fps = 5
@@ -286,6 +323,10 @@ func streamLoopMJPEG(
 				continue
 			}
 
+			if debug {
+				log.Printf("[debug] mjpeg frame bytes=%d pkts=%d", len(jpegData), len(pkts))
+			}
+
 			for _, pkt := range pkts {
 				pkt.Timestamp = rtpTimestamp
 				if err := stream.WritePacketRTP(media, pkt); err != nil {
@@ -304,6 +345,7 @@ func streamLoopToMJPEGWriter(
 	w io.Writer,
 	store *presence.Store,
 	fps, width, height int,
+	debug bool,
 ) {
 	if fps <= 0 {
 		fps = 5
@@ -323,6 +365,9 @@ func streamLoopToMJPEGWriter(
 			if _, err := w.Write(jpegData); err != nil {
 				log.Printf("ffmpeg pipe write failed: %v", err)
 				return
+			}
+			if debug {
+				log.Printf("[debug] wrote frame to ffmpeg bytes=%d", len(jpegData))
 			}
 		}
 	}
@@ -348,7 +393,7 @@ func randomUint32() uint32 {
 	return binary.BigEndian.Uint32(b[:])
 }
 
-func serveHTTPAPI(ctx context.Context, addr string, store *presence.Store) {
+func serveHTTPAPI(ctx context.Context, addr string, store *presence.Store, debug bool) {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/api/v1/samples", func(w http.ResponseWriter, r *http.Request) {
@@ -365,12 +410,18 @@ func serveHTTPAPI(ctx context.Context, addr string, store *presence.Store) {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
+		if debug {
+			log.Printf("[debug] sample accepted ts=%s wifi=%d bt=%d", sample.Timestamp.Format(time.RFC3339), sample.WiFiCount, sample.BluetoothCount)
+		}
 		w.WriteHeader(http.StatusAccepted)
 	})
 
 	mux.HandleFunc("/api/v1/view", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
+			if debug {
+				log.Printf("[debug] view get")
+			}
 			_ = json.NewEncoder(w).Encode(store.View())
 		case http.MethodPut:
 			var view presence.View
@@ -381,6 +432,9 @@ func serveHTTPAPI(ctx context.Context, addr string, store *presence.Store) {
 			if err := store.SetView(view); err != nil {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
+			}
+			if debug {
+				log.Printf("[debug] view updated window=%s source=%s mode=%s", view.Window, view.Source, view.DisplayMode)
 			}
 			_ = json.NewEncoder(w).Encode(view)
 		default:

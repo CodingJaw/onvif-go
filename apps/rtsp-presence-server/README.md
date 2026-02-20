@@ -30,6 +30,9 @@ Codec modes:
 - `-codec h264` (default): uses ffmpeg (`libx264`) to publish H264 into the local RTSP server
 - `-codec mjpeg`: legacy in-process MJPEG mode
 
+Debug mode:
+- add `-debug` to print RTSP events (`DESCRIBE/SETUP/PLAY/ANNOUNCE/RECORD`, session/connection open/close), frame pipeline activity, and HTTP API updates.
+
 Transport compatibility:
 - RTSP over TCP
 - RTP/RTCP over UDP
