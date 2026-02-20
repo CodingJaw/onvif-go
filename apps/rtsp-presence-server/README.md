@@ -30,6 +30,14 @@ Codec modes:
 - `-codec h264` (default): uses ffmpeg (`libx264`) to publish H264 into the local RTSP server
 - `-codec mjpeg`: legacy in-process MJPEG mode
 
+Transport compatibility:
+- RTSP over TCP
+- RTP/RTCP over UDP
+- UDP multicast
+
+Path handling:
+- `-path` accepts `presence` or `/presence` (normalized internally), to avoid client/path mismatches.
+
 > H264 mode requires `ffmpeg` in `PATH`.
 RTSP URI (default):
 

@@ -16,6 +16,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -105,15 +106,19 @@ func main() {
 		host     = flag.String("host", "127.0.0.1", "host/IP for stream URLs and local H264 publisher")
 	)
 	flag.Parse()
+	*path = normalizePath(*path)
 
 	store := presence.NewStore()
 
 	h := &rtspHandler{}
 	rtspServer := &gortsplib.Server{
-		Handler:        h,
-		RTSPAddress:    *rtspAddr,
-		UDPRTPAddress:  ":8000",
-		UDPRTCPAddress: ":8001",
+		Handler:           h,
+		RTSPAddress:       *rtspAddr,
+		UDPRTPAddress:     ":8000",
+		UDPRTCPAddress:    ":8001",
+		MulticastIPRange:  "224.1.0.0/16",
+		MulticastRTPPort:  8002,
+		MulticastRTCPPort: 8003,
 	}
 	h.server = rtspServer
 	if err := rtspServer.Start(); err != nil {
@@ -148,6 +153,15 @@ func main() {
 	<-sig
 	cancel()
 	time.Sleep(300 * time.Millisecond)
+}
+
+func normalizePath(path string) string {
+	path = strings.TrimSpace(path)
+	path = strings.TrimPrefix(path, "/")
+	if path == "" {
+		return "presence"
+	}
+	return path
 }
 
 func runMJPEGPipeline(
