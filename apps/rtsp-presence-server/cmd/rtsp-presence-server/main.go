@@ -36,6 +36,7 @@ type rtspHandler struct {
 	server    *gortsplib.Server
 	stream    *gortsplib.ServerStream
 	publisher *gortsplib.ServerSession
+	path      string
 	debug     bool
 	mu        sync.RWMutex
 }
@@ -77,8 +78,11 @@ func (h *rtspHandler) OnSessionClose(ctx *gortsplib.ServerHandlerOnSessionCloseC
 	}
 }
 
-func (h *rtspHandler) OnDescribe(_ *gortsplib.ServerHandlerOnDescribeCtx) (*base.Response, *gortsplib.ServerStream, error) {
-	h.debugf("DESCRIBE")
+func (h *rtspHandler) OnDescribe(ctx *gortsplib.ServerHandlerOnDescribeCtx) (*base.Response, *gortsplib.ServerStream, error) {
+	h.debugf("DESCRIBE path=%s", ctx.Path)
+	if ctx.Path != h.path {
+		return &base.Response{StatusCode: base.StatusNotFound}, nil, nil
+	}
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	if h.stream == nil {
@@ -88,7 +92,10 @@ func (h *rtspHandler) OnDescribe(_ *gortsplib.ServerHandlerOnDescribeCtx) (*base
 }
 
 func (h *rtspHandler) OnSetup(ctx *gortsplib.ServerHandlerOnSetupCtx) (*base.Response, *gortsplib.ServerStream, error) {
-	h.debugf("SETUP state=%s", ctx.Session.State())
+	h.debugf("SETUP path=%s state=%s", ctx.Path, ctx.Session.State())
+	if ctx.Path != h.path {
+		return &base.Response{StatusCode: base.StatusNotFound}, nil, nil
+	}
 	if ctx.Session.State() == gortsplib.ServerSessionStatePreRecord {
 		return &base.Response{StatusCode: base.StatusOK}, nil, nil
 	}
@@ -101,13 +108,19 @@ func (h *rtspHandler) OnSetup(ctx *gortsplib.ServerHandlerOnSetupCtx) (*base.Res
 	return &base.Response{StatusCode: base.StatusOK}, h.stream, nil
 }
 
-func (h *rtspHandler) OnPlay(_ *gortsplib.ServerHandlerOnPlayCtx) (*base.Response, error) {
-	h.debugf("PLAY")
+func (h *rtspHandler) OnPlay(ctx *gortsplib.ServerHandlerOnPlayCtx) (*base.Response, error) {
+	h.debugf("PLAY path=%s", ctx.Path)
+	if ctx.Path != h.path {
+		return &base.Response{StatusCode: base.StatusNotFound}, nil
+	}
 	return &base.Response{StatusCode: base.StatusOK}, nil
 }
 
 func (h *rtspHandler) OnAnnounce(ctx *gortsplib.ServerHandlerOnAnnounceCtx) (*base.Response, error) {
-	h.debugf("ANNOUNCE medias=%d", len(ctx.Description.Medias))
+	h.debugf("ANNOUNCE path=%s medias=%d", ctx.Path, len(ctx.Description.Medias))
+	if ctx.Path != h.path {
+		return &base.Response{StatusCode: base.StatusNotFound}, nil
+	}
 
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -125,7 +138,10 @@ func (h *rtspHandler) OnAnnounce(ctx *gortsplib.ServerHandlerOnAnnounceCtx) (*ba
 }
 
 func (h *rtspHandler) OnRecord(ctx *gortsplib.ServerHandlerOnRecordCtx) (*base.Response, error) {
-	h.debugf("RECORD")
+	h.debugf("RECORD path=%s", ctx.Path)
+	if ctx.Path != h.path {
+		return &base.Response{StatusCode: base.StatusNotFound}, nil
+	}
 	ctx.Session.OnPacketRTPAny(func(medi *description.Media, _ format.Format, pkt *rtp.Packet) {
 		h.mu.RLock()
 		stream := h.stream
@@ -152,6 +168,7 @@ func main() {
 		width    = flag.Int("width", 1280, "video width")
 		height   = flag.Int("height", 720, "video height")
 		host     = flag.String("host", "127.0.0.1", "host/IP for displayed stream/API URLs")
+		pubHost  = flag.String("publish-host", "127.0.0.1", "host/IP used by internal H264 publisher to connect RTSP server")
 		codec    = flag.String("codec", "h264", "stream codec: h264 or mjpeg")
 		debug    = flag.Bool("debug", false, "enable verbose debug logging")
 	)
@@ -159,7 +176,7 @@ func main() {
 	*path = normalizePath(*path)
 
 	store := presence.NewStore()
-	h := &rtspHandler{debug: *debug}
+	h := &rtspHandler{debug: *debug, path: *path}
 
 	rtspServer := &gortsplib.Server{
 		Handler:           h,
@@ -188,7 +205,7 @@ func main() {
 		}
 		log.Printf("RTSP stream ready (MJPEG): rtsp://%s%s/%s", *host, *rtspAddr, *path)
 	case "h264":
-		if err := runH264Pipeline(ctx, h, *host, *rtspAddr, *path, store, *fps, *width, *height, *debug); err != nil {
+		if err := runH264Pipeline(ctx, h, *pubHost, *rtspAddr, *path, store, *fps, *width, *height, *debug); err != nil {
 			log.Fatalf("failed to start h264 pipeline: %v", err)
 		}
 		log.Printf("RTSP stream ready (H264): rtsp://%s%s/%s", *host, *rtspAddr, *path)

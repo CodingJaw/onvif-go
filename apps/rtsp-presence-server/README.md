@@ -26,6 +26,13 @@ Set a different IP/host (instead of `127.0.0.1`) with:
 go run ./apps/rtsp-presence-server/cmd/rtsp-presence-server -host 192.168.1.50
 ```
 
+If the server advertises a non-local host but runs on the same machine as the internal H264 publisher,
+set publisher host explicitly:
+
+```bash
+go run ./apps/rtsp-presence-server/cmd/rtsp-presence-server -codec h264 -host 192.168.1.50 -publish-host 127.0.0.1
+```
+
 
 
 Codec modes:
