@@ -4,7 +4,9 @@ This subfolder contains a standalone RTSP app focused on the hardest part first:
 
 ## What it does now
 
-- Hosts a **gortsplib-native RTSP MJPEG** stream (no ffmpeg publishing loop required).
+- Hosts a **gortsplib-native RTSP stream** with selectable codec mode:
+  - `h264` (default, better compatibility)
+  - `mjpeg` (simple fallback/debug)
 - Renders a simple chart frame from incoming presence samples.
 - Exposes a small HTTP API so Python (or Go ONVIF server) can push data and change view mode.
 
@@ -15,7 +17,7 @@ This subfolder contains a standalone RTSP app focused on the hardest part first:
 ## Run
 
 ```bash
-go run ./apps/rtsp-presence-server/cmd/rtsp-presence-server
+go run ./apps/rtsp-presence-server/cmd/rtsp-presence-server -codec h264
 ```
 
 Set a different IP/host (instead of `127.0.0.1`) with:
@@ -26,11 +28,14 @@ go run ./apps/rtsp-presence-server/cmd/rtsp-presence-server -host 192.168.1.50
 
 
 
-Server mode:
-- single gortsplib-native MJPEG stream producer
+Codec modes:
+- `-codec h264` (default): gortsplib server + ffmpeg x264 publisher (widest RTSP client compatibility)
+- `-codec mjpeg`: pure gortsplib MJPEG producer path (simple fallback/debug)
+
+> H264 mode requires `ffmpeg` in `PATH`.
 
 Debug mode:
-- add `-debug` to print RTSP events (`DESCRIBE/SETUP/PLAY`, session/connection open/close), frame pipeline activity, and HTTP API updates.
+- add `-debug` to print RTSP events (`DESCRIBE/SETUP/PLAY/ANNOUNCE/RECORD`, session/connection open/close), frame pipeline activity, and HTTP API updates.
 
 Transport compatibility:
 - RTSP over TCP
@@ -50,6 +55,13 @@ Open in VLC: `Media -> Open Network Stream -> rtsp://<host>:8554/presence`
 
 If your client previously showed `461 Unsupported Transport`, that was caused by missing UDP transport listeners. The server now supports both UDP and TCP interleaved RTSP transport.
 
+RTSP stream expectations (what this server provides):
+- SDP via `DESCRIBE`
+- `SETUP` + `PLAY` for readers
+- for H264 mode, internal publisher uses `ANNOUNCE` + `RECORD`
+- RTP timestamps and sequence numbers per packet
+- transport support: TCP interleaved, UDP unicast, UDP multicast
+
 For lower startup latency with ffplay:
 
 ```bash
@@ -59,7 +71,7 @@ ffplay -fflags nobuffer -flags low_delay -rtsp_transport tcp rtsp://<host>:8554/
 The stream is updated in real-time when you POST samples or change `/api/v1/view`.
 The x-axis is time-based (sample timestamps against the active window), so changing `live`/`10m`/`1h` changes horizontal scaling, and the chart continues to scroll left as time passes even without new samples.
 
-## ffplay warning notes (MJPEG)
+## ffplay warning notes (MJPEG mode)
 
 If ffplay prints warnings like:
 
