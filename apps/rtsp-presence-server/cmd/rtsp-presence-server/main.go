@@ -46,6 +46,12 @@ func (h *rtspHandler) debugf(format string, args ...interface{}) {
 	}
 }
 
+func (h *rtspHandler) hasStream() bool {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.stream != nil
+}
+
 func (h *rtspHandler) OnConnOpen(_ *gortsplib.ServerHandlerOnConnOpenCtx) {
 	h.debugf("RTSP connection opened")
 }
@@ -182,7 +188,7 @@ func main() {
 		}
 		log.Printf("RTSP stream ready (MJPEG): rtsp://%s%s/%s", *host, *rtspAddr, *path)
 	case "h264":
-		if err := runH264Pipeline(ctx, *host, *rtspAddr, *path, store, *fps, *width, *height, *debug); err != nil {
+		if err := runH264Pipeline(ctx, h, *host, *rtspAddr, *path, store, *fps, *width, *height, *debug); err != nil {
 			log.Fatalf("failed to start h264 pipeline: %v", err)
 		}
 		log.Printf("RTSP stream ready (H264): rtsp://%s%s/%s", *host, *rtspAddr, *path)
@@ -243,6 +249,7 @@ func runMJPEGPipeline(
 
 func runH264Pipeline(
 	ctx context.Context,
+	h *rtspHandler,
 	host, rtspAddr, path string,
 	store *presence.Store,
 	fps, width, height int,
@@ -293,7 +300,27 @@ func runH264Pipeline(
 	}()
 	go streamLoopToMJPEGWriter(ctx, stdin, store, fps, width, height, debug)
 
-	return nil
+	readyDeadline := time.NewTimer(5 * time.Second)
+	defer readyDeadline.Stop()
+	pollTicker := time.NewTicker(100 * time.Millisecond)
+	defer pollTicker.Stop()
+
+	for {
+		if h.hasStream() {
+			if debug {
+				log.Printf("[debug] h264 publisher announced stream successfully")
+			}
+			return nil
+		}
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-readyDeadline.C:
+			return fmt.Errorf("h264 publisher did not announce stream within timeout")
+		case <-pollTicker.C:
+		}
+	}
 }
 
 func streamLoopMJPEG(
