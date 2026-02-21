@@ -210,7 +210,7 @@ func main() {
 		host        = flag.String("host", "127.0.0.1", "host/IP for displayed stream/API URLs")
 		pubHost     = flag.String("publish-host", "127.0.0.1", "host/IP used by internal H264 publisher to connect RTSP server")
 		codec       = flag.String("codec", "h264", "stream codec: h264 or mjpeg")
-		audioSource = flag.String("audio-source", "silent", "h264 audio source: silent, pulse, alsa, none")
+		audioSource = flag.String("audio-source", "none", "h264 audio source: none, silent, pulse, alsa")
 		audioDevice = flag.String("audio-device", "", "audio input device (for pulse/alsa). empty uses backend default")
 		debug       = flag.Bool("debug", false, "enable verbose debug logging")
 	)
@@ -451,7 +451,7 @@ func buildAudioInputArgs(source, device string) ([]string, bool, error) {
 	case "none":
 		return nil, false, nil
 	default:
-		return nil, false, fmt.Errorf("unsupported -audio-source %q (use silent, pulse, alsa, none)", source)
+		return nil, false, fmt.Errorf("unsupported -audio-source %q (use none, silent, pulse, alsa)", source)
 	}
 }
 

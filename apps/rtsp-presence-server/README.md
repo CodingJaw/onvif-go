@@ -44,21 +44,24 @@ Codec modes:
 H264 defaults are tuned for smoother playback and better metadata signaling:
 - default `-fps` is `15` (instead of 5)
 - encoder emits BT.709 color metadata (`color_primaries` / `color_transfer`)
-- includes a default silent AAC audio track (`-audio-source silent`) for better VLC compatibility
+- defaults to video-only (`-audio-source none`) to avoid client-side audio mis-detection issues; optional AAC audio can be enabled explicitly
 
 Audio options (H264 mode):
-- `-audio-source silent` (default): inject synthetic silent AAC (real-time paced)
+- `-audio-source none` (default): publish video-only RTSP stream
+- `-audio-source silent`: inject synthetic silent AAC (real-time paced)
 - `-audio-source pulse [-audio-device <source>]`: capture from PulseAudio input (real-time paced)
 - `-audio-source alsa [-audio-device <device>]`: capture from ALSA input (real-time paced)
-- `-audio-source none`: disable audio track entirely
 
 Audio is encoded as AAC-LC with async resampling and global headers to keep RTP/SDP signaling compatible across stricter RTSP clients.
 
 Examples:
 
 ```bash
-# default silent AAC
+# default video-only
 go run ./apps/rtsp-presence-server/cmd/rtsp-presence-server -codec h264
+
+# explicit silent AAC
+go run ./apps/rtsp-presence-server/cmd/rtsp-presence-server -codec h264 -audio-source silent
 
 # PulseAudio mic/source (use pactl list short sources to discover names)
 go run ./apps/rtsp-presence-server/cmd/rtsp-presence-server -codec h264 -audio-source pulse -audio-device default
