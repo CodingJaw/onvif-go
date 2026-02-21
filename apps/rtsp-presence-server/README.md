@@ -44,6 +44,26 @@ Codec modes:
 H264 defaults are tuned for smoother playback and better metadata signaling:
 - default `-fps` is `15` (instead of 5)
 - encoder emits BT.709 color metadata (`color_primaries` / `color_transfer`)
+- includes a default silent AAC audio track (`-audio-source silent`) for better VLC compatibility
+
+Audio options (H264 mode):
+- `-audio-source silent` (default): inject synthetic silent AAC
+- `-audio-source pulse [-audio-device <source>]`: capture from PulseAudio input
+- `-audio-source alsa [-audio-device <device>]`: capture from ALSA input
+- `-audio-source none`: disable audio track entirely
+
+Examples:
+
+```bash
+# default silent AAC
+go run ./apps/rtsp-presence-server/cmd/rtsp-presence-server -codec h264
+
+# PulseAudio mic/source (use pactl list short sources to discover names)
+go run ./apps/rtsp-presence-server/cmd/rtsp-presence-server -codec h264 -audio-source pulse -audio-device default
+
+# ALSA capture
+go run ./apps/rtsp-presence-server/cmd/rtsp-presence-server -codec h264 -audio-source alsa -audio-device hw:0,0
+```
 
 > H264 mode requires `ffmpeg` in `PATH`.
 

@@ -201,16 +201,18 @@ func (h *rtspHandler) OnRecord(ctx *gortsplib.ServerHandlerOnRecordCtx) (*base.R
 
 func main() {
 	var (
-		rtspAddr = flag.String("rtsp-addr", ":8554", "RTSP bind address")
-		httpAddr = flag.String("http-addr", ":18080", "HTTP API bind address")
-		path     = flag.String("path", "presence", "RTSP path")
-		fps      = flag.Int("fps", 15, "stream FPS")
-		width    = flag.Int("width", 1280, "video width")
-		height   = flag.Int("height", 720, "video height")
-		host     = flag.String("host", "127.0.0.1", "host/IP for displayed stream/API URLs")
-		pubHost  = flag.String("publish-host", "127.0.0.1", "host/IP used by internal H264 publisher to connect RTSP server")
-		codec    = flag.String("codec", "h264", "stream codec: h264 or mjpeg")
-		debug    = flag.Bool("debug", false, "enable verbose debug logging")
+		rtspAddr    = flag.String("rtsp-addr", ":8554", "RTSP bind address")
+		httpAddr    = flag.String("http-addr", ":18080", "HTTP API bind address")
+		path        = flag.String("path", "presence", "RTSP path")
+		fps         = flag.Int("fps", 15, "stream FPS")
+		width       = flag.Int("width", 1280, "video width")
+		height      = flag.Int("height", 720, "video height")
+		host        = flag.String("host", "127.0.0.1", "host/IP for displayed stream/API URLs")
+		pubHost     = flag.String("publish-host", "127.0.0.1", "host/IP used by internal H264 publisher to connect RTSP server")
+		codec       = flag.String("codec", "h264", "stream codec: h264 or mjpeg")
+		audioSource = flag.String("audio-source", "silent", "h264 audio source: silent, pulse, alsa, none")
+		audioDevice = flag.String("audio-device", "", "audio input device (for pulse/alsa). empty uses backend default")
+		debug       = flag.Bool("debug", false, "enable verbose debug logging")
 	)
 	flag.Parse()
 	*path = normalizePath(*path)
@@ -248,7 +250,7 @@ func main() {
 		}
 		log.Printf("RTSP stream ready (MJPEG): rtsp://%s%s/%s", *host, *rtspAddr, *path)
 	case "h264":
-		if err := runH264Pipeline(ctx, h, *pubHost, *rtspAddr, *path, store, *fps, *width, *height, *debug); err != nil {
+		if err := runH264Pipeline(ctx, h, *pubHost, *rtspAddr, *path, store, *fps, *width, *height, *audioSource, *audioDevice, *debug); err != nil {
 			log.Fatalf("failed to start h264 pipeline: %v", err)
 		}
 		log.Printf("RTSP stream ready (H264): rtsp://%s%s/%s", *host, *rtspAddr, *path)
@@ -313,6 +315,7 @@ func runH264Pipeline(
 	host, rtspAddr, path string,
 	store *presence.Store,
 	fps, width, height int,
+	audioSource, audioDevice string,
 	debug bool,
 ) error {
 	if _, err := exec.LookPath("ffmpeg"); err != nil {
@@ -326,14 +329,21 @@ func runH264Pipeline(
 
 	uri := fmt.Sprintf("rtsp://%s:%s/%s", publishHost, extractPortOrDefault(rtspAddr, "8554"), path)
 	gop := max(10, fps*2)
-	cmd := exec.CommandContext(ctx, "ffmpeg",
+	audioArgs, withAudio, err := buildAudioInputArgs(audioSource, audioDevice)
+	if err != nil {
+		return err
+	}
+	args := []string{
 		"-loglevel", "error",
 		"-fflags", "+genpts",
 		"-re",
 		"-f", "mjpeg",
 		"-r", fmt.Sprintf("%d", fps),
 		"-i", "pipe:0",
-		"-an",
+	}
+	args = append(args, audioArgs...)
+	args = append(args,
+		"-map", "0:v:0",
 		"-c:v", "libx264",
 		"-preset", "ultrafast",
 		"-tune", "zerolatency",
@@ -348,10 +358,25 @@ func runH264Pipeline(
 		"-g", fmt.Sprintf("%d", gop),
 		"-keyint_min", fmt.Sprintf("%d", gop),
 		"-fps_mode", "cfr",
+	)
+	if withAudio {
+		args = append(args,
+			"-map", "1:a:0",
+			"-c:a", "aac",
+			"-ar", "48000",
+			"-ac", "2",
+			"-b:a", "128k",
+		)
+	} else {
+		args = append(args, "-an")
+	}
+	args = append(args,
 		"-f", "rtsp",
 		"-rtsp_transport", "tcp",
 		uri,
 	)
+
+	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -401,6 +426,29 @@ func runH264Pipeline(
 			return fmt.Errorf("h264 publisher did not announce stream within timeout")
 		case <-pollTicker.C:
 		}
+	}
+}
+
+func buildAudioInputArgs(source, device string) ([]string, bool, error) {
+	switch strings.ToLower(strings.TrimSpace(source)) {
+	case "", "silent":
+		return []string{"-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=48000"}, true, nil
+	case "pulse":
+		dev := strings.TrimSpace(device)
+		if dev == "" {
+			dev = "default"
+		}
+		return []string{"-f", "pulse", "-i", dev}, true, nil
+	case "alsa":
+		dev := strings.TrimSpace(device)
+		if dev == "" {
+			dev = "default"
+		}
+		return []string{"-f", "alsa", "-i", dev}, true, nil
+	case "none":
+		return nil, false, nil
+	default:
+		return nil, false, fmt.Errorf("unsupported -audio-source %q (use silent, pulse, alsa, none)", source)
 	}
 }
 
