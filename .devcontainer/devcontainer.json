@@ -1,0 +1,12 @@
+{
+  "name": "onvif-go",
+  "image": "mcr.microsoft.com/devcontainers/go:1-1.23-bookworm",
+  "postCreateCommand": "sudo apt-get update && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ffmpeg vlc-bin && sudo rm -rf /var/lib/apt/lists/*",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "golang.go"
+      ]
+    }
+  }
+}
