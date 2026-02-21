@@ -87,6 +87,12 @@ If logs show `--disable-live555`, use one of:
 - `ffplay -rtsp_transport tcp rtsp://<host>:8554/presence`
 - a VLC build/package with live555-enabled RTSP support
 
+### ffprobe "unknown" fields on this stream
+
+`ffprobe -show_streams` will show several fields as `N/A` or `unknown` for this feed (for example `duration`, `bit_rate`, `color_transfer`, `color_primaries`).
+That is expected for a **live RTSP stream** coming from an ongoing H264 encoder pipeline; those fields are often unavailable or not signaled in SDP.
+It does **not** indicate a broken stream by itself.
+
 If your client previously showed `461 Unsupported Transport`, that was caused by missing UDP transport listeners. The server now supports both UDP and TCP interleaved RTSP transport.
 
 RTSP stream expectations (what this server provides):

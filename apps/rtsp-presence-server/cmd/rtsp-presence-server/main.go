@@ -65,7 +65,19 @@ func (h *rtspHandler) hasStream() bool {
 }
 
 func (h *rtspHandler) OnRequest(_ *gortsplib.ServerConn, req *base.Request) {
-	if req.Method != base.Setup || req.URL == nil {
+	if req.URL == nil {
+		return
+	}
+
+	// Some VLC/SAT>IP flows switch to /stream=<id> after an initial request
+	// to the configured path. Keep all requests on the configured path so
+	// gortsplib session path consistency checks continue to pass.
+	if strings.HasPrefix(req.URL.Path, "/stream=") {
+		req.URL.Path = "/" + h.path
+		h.debugf("rewrote SAT>IP style path to stream path: %s", req.URL.String())
+	}
+
+	if req.Method != base.Setup {
 		return
 	}
 
@@ -73,11 +85,6 @@ func (h *rtspHandler) OnRequest(_ *gortsplib.ServerConn, req *base.Request) {
 	// stream URL without trackID and without trailing slash ("/presence").
 	// gortsplib rejects that form before OnSetup. Rewrite to "/presence/"
 	// so it is accepted and mapped to track 0 for single-track streams.
-	if strings.HasPrefix(req.URL.Path, "/stream=") {
-		req.URL.Path = "/" + h.path
-		h.debugf("rewrote SAT>IP style path to stream path: %s", req.URL.String())
-	}
-
 	if samePath(req.URL.Path, h.path) &&
 		req.URL.RawQuery == "" &&
 		!strings.HasSuffix(req.URL.Path, "/") {
