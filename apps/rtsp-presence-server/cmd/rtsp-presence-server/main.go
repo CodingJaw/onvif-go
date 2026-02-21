@@ -46,6 +46,12 @@ func samePath(a, b string) bool {
 	return normalizePath(a) == normalizePath(b)
 }
 
+func samePathOrTrack(a, b string) bool {
+	na := normalizePath(a)
+	nb := normalizePath(b)
+	return na == nb || strings.HasPrefix(na, nb+"/")
+}
+
 func (h *rtspHandler) debugf(format string, args ...interface{}) {
 	if h.debug {
 		log.Printf("[debug] "+format, args...)
@@ -98,7 +104,7 @@ func (h *rtspHandler) OnDescribe(ctx *gortsplib.ServerHandlerOnDescribeCtx) (*ba
 
 func (h *rtspHandler) OnSetup(ctx *gortsplib.ServerHandlerOnSetupCtx) (*base.Response, *gortsplib.ServerStream, error) {
 	h.debugf("SETUP path=%s state=%s", ctx.Path, ctx.Session.State())
-	if !samePath(ctx.Path, h.path) {
+	if !samePathOrTrack(ctx.Path, h.path) {
 		return &base.Response{StatusCode: base.StatusNotFound}, nil, nil
 	}
 	if ctx.Session.State() == gortsplib.ServerSessionStatePreRecord {
@@ -115,7 +121,7 @@ func (h *rtspHandler) OnSetup(ctx *gortsplib.ServerHandlerOnSetupCtx) (*base.Res
 
 func (h *rtspHandler) OnPlay(ctx *gortsplib.ServerHandlerOnPlayCtx) (*base.Response, error) {
 	h.debugf("PLAY path=%s", ctx.Path)
-	if !samePath(ctx.Path, h.path) {
+	if !samePathOrTrack(ctx.Path, h.path) {
 		return &base.Response{StatusCode: base.StatusNotFound}, nil
 	}
 	return &base.Response{StatusCode: base.StatusOK}, nil
