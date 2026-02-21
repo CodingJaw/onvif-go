@@ -64,6 +64,28 @@ func (h *rtspHandler) hasStream() bool {
 	return h.stream != nil
 }
 
+func (h *rtspHandler) OnRequest(_ *gortsplib.ServerConn, req *base.Request) {
+	if req.Method != base.Setup || req.URL == nil {
+		return
+	}
+
+	// Some VLC builds (notably without live555) can issue SETUP on the base
+	// stream URL without trackID and without trailing slash ("/presence").
+	// gortsplib rejects that form before OnSetup. Rewrite to "/presence/"
+	// so it is accepted and mapped to track 0 for single-track streams.
+	if strings.HasPrefix(req.URL.Path, "/stream=") {
+		req.URL.Path = "/" + h.path
+		h.debugf("rewrote SAT>IP style path to stream path: %s", req.URL.String())
+	}
+
+	if samePath(req.URL.Path, h.path) &&
+		req.URL.RawQuery == "" &&
+		!strings.HasSuffix(req.URL.Path, "/") {
+		req.URL.Path += "/"
+		h.debugf("rewrote SETUP URL to include trailing slash: %s", req.URL.String())
+	}
+}
+
 func (h *rtspHandler) OnConnOpen(_ *gortsplib.ServerHandlerOnConnOpenCtx) {
 	h.debugf("RTSP connection opened")
 }

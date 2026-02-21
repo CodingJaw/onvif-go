@@ -62,6 +62,31 @@ rtsp://<host>:8554/presence
 
 Open in VLC: `Media -> Open Network Stream -> rtsp://<host>:8554/presence`
 
+### VLC package caveat (important)
+
+Some distro VLC builds (including Ubuntu 24.04 package `3.0.20-3build6`) are compiled with:
+
+- `--disable-live555`
+- `--enable-realrtsp`
+
+In that build, VLC tries SAT>IP / RealRTSP handlers for `rtsp://...` and can fail with logs like:
+
+- `satip stream error: Failed to setup RTSP session`
+- `access_realrtsp stream warning: only real/helix rtsp servers supported for now`
+
+That failure is a **VLC client build limitation**, not an RTSP server transport issue.
+
+Check your VLC build quickly:
+
+```bash
+cvlc -vvv --play-and-exit rtsp://<host>:8554/presence
+```
+
+If logs show `--disable-live555`, use one of:
+
+- `ffplay -rtsp_transport tcp rtsp://<host>:8554/presence`
+- a VLC build/package with live555-enabled RTSP support
+
 If your client previously showed `461 Unsupported Transport`, that was caused by missing UDP transport listeners. The server now supports both UDP and TCP interleaved RTSP transport.
 
 RTSP stream expectations (what this server provides):
