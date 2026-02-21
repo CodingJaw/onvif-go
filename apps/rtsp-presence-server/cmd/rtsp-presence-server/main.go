@@ -363,9 +363,12 @@ func runH264Pipeline(
 		args = append(args,
 			"-map", "1:a:0",
 			"-c:a", "aac",
+			"-profile:a", "aac_low",
 			"-ar", "48000",
 			"-ac", "2",
 			"-b:a", "128k",
+			"-af", "aresample=async=1:first_pts=0",
+			"-flags:a", "+global_header",
 		)
 	} else {
 		args = append(args, "-an")
@@ -432,19 +435,19 @@ func runH264Pipeline(
 func buildAudioInputArgs(source, device string) ([]string, bool, error) {
 	switch strings.ToLower(strings.TrimSpace(source)) {
 	case "", "silent":
-		return []string{"-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=48000"}, true, nil
+		return []string{"-re", "-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=48000"}, true, nil
 	case "pulse":
 		dev := strings.TrimSpace(device)
 		if dev == "" {
 			dev = "default"
 		}
-		return []string{"-f", "pulse", "-i", dev}, true, nil
+		return []string{"-re", "-f", "pulse", "-thread_queue_size", "512", "-i", dev}, true, nil
 	case "alsa":
 		dev := strings.TrimSpace(device)
 		if dev == "" {
 			dev = "default"
 		}
-		return []string{"-f", "alsa", "-i", dev}, true, nil
+		return []string{"-re", "-f", "alsa", "-thread_queue_size", "512", "-i", dev}, true, nil
 	case "none":
 		return nil, false, nil
 	default:

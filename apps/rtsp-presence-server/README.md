@@ -47,10 +47,12 @@ H264 defaults are tuned for smoother playback and better metadata signaling:
 - includes a default silent AAC audio track (`-audio-source silent`) for better VLC compatibility
 
 Audio options (H264 mode):
-- `-audio-source silent` (default): inject synthetic silent AAC
-- `-audio-source pulse [-audio-device <source>]`: capture from PulseAudio input
-- `-audio-source alsa [-audio-device <device>]`: capture from ALSA input
+- `-audio-source silent` (default): inject synthetic silent AAC (real-time paced)
+- `-audio-source pulse [-audio-device <source>]`: capture from PulseAudio input (real-time paced)
+- `-audio-source alsa [-audio-device <device>]`: capture from ALSA input (real-time paced)
 - `-audio-source none`: disable audio track entirely
+
+Audio is encoded as AAC-LC with async resampling and global headers to keep RTP/SDP signaling compatible across stricter RTSP clients.
 
 Examples:
 
