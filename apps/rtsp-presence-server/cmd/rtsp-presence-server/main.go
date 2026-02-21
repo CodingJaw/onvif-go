@@ -204,7 +204,7 @@ func main() {
 		rtspAddr = flag.String("rtsp-addr", ":8554", "RTSP bind address")
 		httpAddr = flag.String("http-addr", ":18080", "HTTP API bind address")
 		path     = flag.String("path", "presence", "RTSP path")
-		fps      = flag.Int("fps", 5, "stream FPS")
+		fps      = flag.Int("fps", 15, "stream FPS")
 		width    = flag.Int("width", 1280, "video width")
 		height   = flag.Int("height", 720, "video height")
 		host     = flag.String("host", "127.0.0.1", "host/IP for displayed stream/API URLs")
@@ -328,6 +328,7 @@ func runH264Pipeline(
 	gop := max(10, fps*2)
 	cmd := exec.CommandContext(ctx, "ffmpeg",
 		"-loglevel", "error",
+		"-fflags", "+genpts",
 		"-re",
 		"-f", "mjpeg",
 		"-r", fmt.Sprintf("%d", fps),
@@ -338,8 +339,15 @@ func runH264Pipeline(
 		"-tune", "zerolatency",
 		"-profile:v", "baseline",
 		"-pix_fmt", "yuv420p",
+		"-colorspace", "bt709",
+		"-color_primaries", "bt709",
+		"-color_trc", "bt709",
+		"-b:v", "2500k",
+		"-maxrate", "2500k",
+		"-bufsize", "5000k",
 		"-g", fmt.Sprintf("%d", gop),
 		"-keyint_min", fmt.Sprintf("%d", gop),
+		"-fps_mode", "cfr",
 		"-f", "rtsp",
 		"-rtsp_transport", "tcp",
 		uri,
@@ -448,7 +456,7 @@ func streamLoopMJPEG(
 	debug bool,
 ) {
 	if fps <= 0 {
-		fps = 5
+		fps = 15
 	}
 
 	clockRate := uint32(90000)
@@ -500,7 +508,7 @@ func streamLoopToMJPEGWriter(
 	debug bool,
 ) {
 	if fps <= 0 {
-		fps = 5
+		fps = 15
 	}
 	ticker := time.NewTicker(time.Second / time.Duration(fps))
 	defer ticker.Stop()

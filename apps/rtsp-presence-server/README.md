@@ -41,6 +41,10 @@ Codec modes:
 - `-codec h264` (default): gortsplib server + ffmpeg x264 publisher (widest RTSP client compatibility)
 - `-codec mjpeg`: pure gortsplib MJPEG producer path (simple fallback/debug)
 
+H264 defaults are tuned for smoother playback and better metadata signaling:
+- default `-fps` is `15` (instead of 5)
+- encoder emits BT.709 color metadata (`color_primaries` / `color_transfer`)
+
 > H264 mode requires `ffmpeg` in `PATH`.
 
 Debug mode:
@@ -92,6 +96,8 @@ If logs show `--disable-live555`, use one of:
 `ffprobe -show_streams` will show several fields as `N/A` or `unknown` for this feed (for example `duration`, `bit_rate`, `color_transfer`, `color_primaries`).
 That is expected for a **live RTSP stream** coming from an ongoing H264 encoder pipeline; those fields are often unavailable or not signaled in SDP.
 It does **not** indicate a broken stream by itself.
+
+Also, for RTSP/RTP H264, `is_avc=false` and `nal_length_size=0` are expected in ffprobe output because RTP packetization carries Annex-B style NAL units rather than MP4/AVCC length-prefixed NALs.
 
 If your client previously showed `461 Unsupported Transport`, that was caused by missing UDP transport listeners. The server now supports both UDP and TCP interleaved RTSP transport.
 
