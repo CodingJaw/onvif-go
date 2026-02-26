@@ -46,6 +46,12 @@ func samePath(a, b string) bool {
 	return normalizePath(a) == normalizePath(b)
 }
 
+func samePathOrTrack(a, b string) bool {
+	na := normalizePath(a)
+	nb := normalizePath(b)
+	return na == nb || strings.HasPrefix(na, nb+"/")
+}
+
 func (h *rtspHandler) debugf(format string, args ...interface{}) {
 	if h.debug {
 		log.Printf("[debug] "+format, args...)
@@ -56,6 +62,35 @@ func (h *rtspHandler) hasStream() bool {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	return h.stream != nil
+}
+
+func (h *rtspHandler) OnRequest(_ *gortsplib.ServerConn, req *base.Request) {
+	if req.URL == nil {
+		return
+	}
+
+	// Some VLC/SAT>IP flows switch to /stream=<id> after an initial request
+	// to the configured path. Keep all requests on the configured path so
+	// gortsplib session path consistency checks continue to pass.
+	if strings.HasPrefix(req.URL.Path, "/stream=") {
+		req.URL.Path = "/" + h.path
+		h.debugf("rewrote SAT>IP style path to stream path: %s", req.URL.String())
+	}
+
+	if req.Method != base.Setup {
+		return
+	}
+
+	// Some VLC builds (notably without live555) can issue SETUP on the base
+	// stream URL without trackID and without trailing slash ("/presence").
+	// gortsplib rejects that form before OnSetup. Rewrite to "/presence/"
+	// so it is accepted and mapped to track 0 for single-track streams.
+	if samePath(req.URL.Path, h.path) &&
+		req.URL.RawQuery == "" &&
+		!strings.HasSuffix(req.URL.Path, "/") {
+		req.URL.Path += "/"
+		h.debugf("rewrote SETUP URL to include trailing slash: %s", req.URL.String())
+	}
 }
 
 func (h *rtspHandler) OnConnOpen(_ *gortsplib.ServerHandlerOnConnOpenCtx) {
@@ -98,7 +133,7 @@ func (h *rtspHandler) OnDescribe(ctx *gortsplib.ServerHandlerOnDescribeCtx) (*ba
 
 func (h *rtspHandler) OnSetup(ctx *gortsplib.ServerHandlerOnSetupCtx) (*base.Response, *gortsplib.ServerStream, error) {
 	h.debugf("SETUP path=%s state=%s", ctx.Path, ctx.Session.State())
-	if !samePath(ctx.Path, h.path) {
+	if !samePathOrTrack(ctx.Path, h.path) {
 		return &base.Response{StatusCode: base.StatusNotFound}, nil, nil
 	}
 	if ctx.Session.State() == gortsplib.ServerSessionStatePreRecord {
@@ -115,7 +150,7 @@ func (h *rtspHandler) OnSetup(ctx *gortsplib.ServerHandlerOnSetupCtx) (*base.Res
 
 func (h *rtspHandler) OnPlay(ctx *gortsplib.ServerHandlerOnPlayCtx) (*base.Response, error) {
 	h.debugf("PLAY path=%s", ctx.Path)
-	if !samePath(ctx.Path, h.path) {
+	if !samePathOrTrack(ctx.Path, h.path) {
 		return &base.Response{StatusCode: base.StatusNotFound}, nil
 	}
 	return &base.Response{StatusCode: base.StatusOK}, nil
@@ -166,16 +201,18 @@ func (h *rtspHandler) OnRecord(ctx *gortsplib.ServerHandlerOnRecordCtx) (*base.R
 
 func main() {
 	var (
-		rtspAddr = flag.String("rtsp-addr", ":8554", "RTSP bind address")
-		httpAddr = flag.String("http-addr", ":18080", "HTTP API bind address")
-		path     = flag.String("path", "presence", "RTSP path")
-		fps      = flag.Int("fps", 5, "stream FPS")
-		width    = flag.Int("width", 1280, "video width")
-		height   = flag.Int("height", 720, "video height")
-		host     = flag.String("host", "127.0.0.1", "host/IP for displayed stream/API URLs")
-		pubHost  = flag.String("publish-host", "127.0.0.1", "host/IP used by internal H264 publisher to connect RTSP server")
-		codec    = flag.String("codec", "h264", "stream codec: h264 or mjpeg")
-		debug    = flag.Bool("debug", false, "enable verbose debug logging")
+		rtspAddr    = flag.String("rtsp-addr", ":8554", "RTSP bind address")
+		httpAddr    = flag.String("http-addr", ":18080", "HTTP API bind address")
+		path        = flag.String("path", "presence", "RTSP path")
+		fps         = flag.Int("fps", 15, "stream FPS")
+		width       = flag.Int("width", 1280, "video width")
+		height      = flag.Int("height", 720, "video height")
+		host        = flag.String("host", "127.0.0.1", "host/IP for displayed stream/API URLs")
+		pubHost     = flag.String("publish-host", "127.0.0.1", "host/IP used by internal H264 publisher to connect RTSP server")
+		codec       = flag.String("codec", "h264", "stream codec: h264 or mjpeg")
+		audioSource = flag.String("audio-source", "none", "h264 audio source: none, silent, pulse, alsa")
+		audioDevice = flag.String("audio-device", "", "audio input device (for pulse/alsa). empty uses backend default")
+		debug       = flag.Bool("debug", false, "enable verbose debug logging")
 	)
 	flag.Parse()
 	*path = normalizePath(*path)
@@ -213,7 +250,7 @@ func main() {
 		}
 		log.Printf("RTSP stream ready (MJPEG): rtsp://%s%s/%s", *host, *rtspAddr, *path)
 	case "h264":
-		if err := runH264Pipeline(ctx, h, *pubHost, *rtspAddr, *path, store, *fps, *width, *height, *debug); err != nil {
+		if err := runH264Pipeline(ctx, h, *pubHost, *rtspAddr, *path, store, *fps, *width, *height, *audioSource, *audioDevice, *debug); err != nil {
 			log.Fatalf("failed to start h264 pipeline: %v", err)
 		}
 		log.Printf("RTSP stream ready (H264): rtsp://%s%s/%s", *host, *rtspAddr, *path)
@@ -278,6 +315,7 @@ func runH264Pipeline(
 	host, rtspAddr, path string,
 	store *presence.Store,
 	fps, width, height int,
+	audioSource, audioDevice string,
 	debug bool,
 ) error {
 	if _, err := exec.LookPath("ffmpeg"); err != nil {
@@ -291,24 +329,57 @@ func runH264Pipeline(
 
 	uri := fmt.Sprintf("rtsp://%s:%s/%s", publishHost, extractPortOrDefault(rtspAddr, "8554"), path)
 	gop := max(10, fps*2)
-	cmd := exec.CommandContext(ctx, "ffmpeg",
+	audioArgs, withAudio, err := buildAudioInputArgs(audioSource, audioDevice)
+	if err != nil {
+		return err
+	}
+	args := []string{
 		"-loglevel", "error",
+		"-fflags", "+genpts",
 		"-re",
 		"-f", "mjpeg",
 		"-r", fmt.Sprintf("%d", fps),
 		"-i", "pipe:0",
-		"-an",
+	}
+	args = append(args, audioArgs...)
+	args = append(args,
+		"-map", "0:v:0",
 		"-c:v", "libx264",
 		"-preset", "ultrafast",
 		"-tune", "zerolatency",
 		"-profile:v", "baseline",
 		"-pix_fmt", "yuv420p",
+		"-colorspace", "bt709",
+		"-color_primaries", "bt709",
+		"-color_trc", "bt709",
+		"-b:v", "2500k",
+		"-maxrate", "2500k",
+		"-bufsize", "5000k",
 		"-g", fmt.Sprintf("%d", gop),
 		"-keyint_min", fmt.Sprintf("%d", gop),
+		"-fps_mode", "cfr",
+	)
+	if withAudio {
+		args = append(args,
+			"-map", "1:a:0",
+			"-c:a", "aac",
+			"-profile:a", "aac_low",
+			"-ar", "48000",
+			"-ac", "2",
+			"-b:a", "128k",
+			"-af", "aresample=async=1:first_pts=0",
+			"-flags:a", "+global_header",
+		)
+	} else {
+		args = append(args, "-an")
+	}
+	args = append(args,
 		"-f", "rtsp",
 		"-rtsp_transport", "tcp",
 		uri,
 	)
+
+	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -358,6 +429,29 @@ func runH264Pipeline(
 			return fmt.Errorf("h264 publisher did not announce stream within timeout")
 		case <-pollTicker.C:
 		}
+	}
+}
+
+func buildAudioInputArgs(source, device string) ([]string, bool, error) {
+	switch strings.ToLower(strings.TrimSpace(source)) {
+	case "", "silent":
+		return []string{"-re", "-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=48000"}, true, nil
+	case "pulse":
+		dev := strings.TrimSpace(device)
+		if dev == "" {
+			dev = "default"
+		}
+		return []string{"-re", "-f", "pulse", "-thread_queue_size", "512", "-i", dev}, true, nil
+	case "alsa":
+		dev := strings.TrimSpace(device)
+		if dev == "" {
+			dev = "default"
+		}
+		return []string{"-re", "-f", "alsa", "-thread_queue_size", "512", "-i", dev}, true, nil
+	case "none":
+		return nil, false, nil
+	default:
+		return nil, false, fmt.Errorf("unsupported -audio-source %q (use none, silent, pulse, alsa)", source)
 	}
 }
 
@@ -413,7 +507,7 @@ func streamLoopMJPEG(
 	debug bool,
 ) {
 	if fps <= 0 {
-		fps = 5
+		fps = 15
 	}
 
 	clockRate := uint32(90000)
@@ -465,7 +559,7 @@ func streamLoopToMJPEGWriter(
 	debug bool,
 ) {
 	if fps <= 0 {
-		fps = 5
+		fps = 15
 	}
 	ticker := time.NewTicker(time.Second / time.Duration(fps))
 	defer ticker.Stop()

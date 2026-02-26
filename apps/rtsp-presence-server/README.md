@@ -41,6 +41,35 @@ Codec modes:
 - `-codec h264` (default): gortsplib server + ffmpeg x264 publisher (widest RTSP client compatibility)
 - `-codec mjpeg`: pure gortsplib MJPEG producer path (simple fallback/debug)
 
+H264 defaults are tuned for smoother playback and better metadata signaling:
+- default `-fps` is `15` (instead of 5)
+- encoder emits BT.709 color metadata (`color_primaries` / `color_transfer`)
+- defaults to video-only (`-audio-source none`) to avoid client-side audio mis-detection issues; optional AAC audio can be enabled explicitly
+
+Audio options (H264 mode):
+- `-audio-source none` (default): publish video-only RTSP stream
+- `-audio-source silent`: inject synthetic silent AAC (real-time paced)
+- `-audio-source pulse [-audio-device <source>]`: capture from PulseAudio input (real-time paced)
+- `-audio-source alsa [-audio-device <device>]`: capture from ALSA input (real-time paced)
+
+Audio is encoded as AAC-LC with async resampling and global headers to keep RTP/SDP signaling compatible across stricter RTSP clients.
+
+Examples:
+
+```bash
+# default video-only
+go run ./apps/rtsp-presence-server/cmd/rtsp-presence-server -codec h264
+
+# explicit silent AAC
+go run ./apps/rtsp-presence-server/cmd/rtsp-presence-server -codec h264 -audio-source silent
+
+# PulseAudio mic/source (use pactl list short sources to discover names)
+go run ./apps/rtsp-presence-server/cmd/rtsp-presence-server -codec h264 -audio-source pulse -audio-device default
+
+# ALSA capture
+go run ./apps/rtsp-presence-server/cmd/rtsp-presence-server -codec h264 -audio-source alsa -audio-device hw:0,0
+```
+
 > H264 mode requires `ffmpeg` in `PATH`.
 
 Debug mode:
@@ -61,6 +90,39 @@ rtsp://<host>:8554/presence
 ```
 
 Open in VLC: `Media -> Open Network Stream -> rtsp://<host>:8554/presence`
+
+### VLC package caveat (important)
+
+Some distro VLC builds (including Ubuntu 24.04 package `3.0.20-3build6`) are compiled with:
+
+- `--disable-live555`
+- `--enable-realrtsp`
+
+In that build, VLC tries SAT>IP / RealRTSP handlers for `rtsp://...` and can fail with logs like:
+
+- `satip stream error: Failed to setup RTSP session`
+- `access_realrtsp stream warning: only real/helix rtsp servers supported for now`
+
+That failure is a **VLC client build limitation**, not an RTSP server transport issue.
+
+Check your VLC build quickly:
+
+```bash
+cvlc -vvv --play-and-exit rtsp://<host>:8554/presence
+```
+
+If logs show `--disable-live555`, use one of:
+
+- `ffplay -rtsp_transport tcp rtsp://<host>:8554/presence`
+- a VLC build/package with live555-enabled RTSP support
+
+### ffprobe "unknown" fields on this stream
+
+`ffprobe -show_streams` will show several fields as `N/A` or `unknown` for this feed (for example `duration`, `bit_rate`, `color_transfer`, `color_primaries`).
+That is expected for a **live RTSP stream** coming from an ongoing H264 encoder pipeline; those fields are often unavailable or not signaled in SDP.
+It does **not** indicate a broken stream by itself.
+
+Also, for RTSP/RTP H264, `is_avc=false` and `nal_length_size=0` are expected in ffprobe output because RTP packetization carries Annex-B style NAL units rather than MP4/AVCC length-prefixed NALs.
 
 If your client previously showed `461 Unsupported Transport`, that was caused by missing UDP transport listeners. The server now supports both UDP and TCP interleaved RTSP transport.
 
